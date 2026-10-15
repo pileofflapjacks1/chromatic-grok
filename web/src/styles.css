@@ -1,0 +1,64 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Syne:wght@600;700;800&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Syne", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Syne", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --color-desk: #efe6d6;
+  --color-ink: #1a1714;
+  --color-lcd: #c6d36a;
+  --color-signal: #d6453d;
+  --radius-card: 1.5rem;
+}
+
+html {
+  background: var(--color-desk);
+  color: var(--color-ink);
+}
+
+body {
+  min-height: 100dvh;
+  background:
+    radial-gradient(1200px 500px at 80% -10%, color-mix(in oklab, var(--color-lcd) 45%, transparent), transparent 60%),
+    var(--color-desk);
+}
+
+h1,
+h2 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+.lcd-scan {
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in oklab, var(--color-ink) 10%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 100% 4px;
+}
+
+.bot-list {
+  max-height: 16rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 1024px) {
+  .bot-list {
+    max-height: 18rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

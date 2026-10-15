@@ -1,3 +1,8 @@
+## Unreleased
+
+### Added
+- Browser companion in `web/`. It asks xAI from the server and sends `grok show` over USB. A local, editable Grok Bot list picks the voice for the next question.
+
 ## 0.14.0-grok
 
 Modified version of the ModRetro Chromatic MCU firmware at `63ed3b62b16768ad2415c9e3b865b438ca40fcc6` (v4.6). GPL-3.0-or-later. See NOTICE.

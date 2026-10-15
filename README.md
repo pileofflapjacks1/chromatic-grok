@@ -160,6 +160,20 @@ python3 companion/chromatic_grok.py --port "$PORT" ask --via-host "What is a Gam
 
 `repl` types straight through to the console. `show` displays a string you already have. Command details and BLE UUIDs are in [docs/PROTOCOL.md](docs/PROTOCOL.md).
 
+### Browser companion
+
+The published page is https://modretrochromatic.grok.me. `web/` is the same companion, plus a local Grok Bot list. It calls xAI from the server (chat completions, model `grok-4.7`) and writes the reply with `grok show` over Web Serial at 115200. The API key stays in `web/.env` (`XAI_API_KEY`). Copy `web/.env.example`. Do not commit the filled-in file.
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open http://127.0.0.1:3000 in desktop Chrome or Edge, click Connect, pick a bot, and press Send. Test the link sends `grok show "Chromatic link ok."` without calling xAI. The bot list is stored in this browser only. The four built-in bots cannot be removed. Phone browsers can pick a bot and read the LCD preview. USB connect stays on desktop Chrome or Edge.
+
+The handheld still needs this firmware before `grok show` does anything. Safari cannot open the serial port.
+
 ### On the device without the companion
 
 Any 115200 terminal works. Example:

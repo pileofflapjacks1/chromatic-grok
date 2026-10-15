@@ -8,3 +8,4 @@ Modified ModRetro Chromatic MCU firmware. Upstream is `upstream` (https://github
 - Grok code is `components/grok/`. The device speaks `http://` to a LAN proxy. The xAI key stays in `XAI_API_KEY` on the computer.
 - Light sleep is skipped while `Grok_WantsRadioAwake()` is true. Default is awake.
 - Host checks: `sh tests/run_host.sh`. That is not an IDF build and not a hardware test.
+- `web/` is the browser companion (TanStack Start). It is not part of the ESP-IDF build. `cd web && npm test && npm run build`.

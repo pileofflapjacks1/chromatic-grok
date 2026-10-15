@@ -4,4 +4,9 @@ sdkconfig
 sdkconfig.old
 .env
 companion/.env
+web/node_modules/
+web/dist/
+web/.output/
+web/.tanstack/
+web/.env
 *.bin
