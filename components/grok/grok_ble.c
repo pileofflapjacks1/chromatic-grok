@@ -35,6 +35,10 @@
 #include "store/config/ble_store_config.h"
 #include "host/ble_store.h"
 
+/* Not exported by a public NimBLE header in ESP-IDF v5.3; the IDF examples
+ * declare it the same way. */
+void ble_store_config_init(void);
+
 #include "esp_err.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"

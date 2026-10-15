@@ -38,7 +38,7 @@ static lv_obj_t *s_header;
 static lv_obj_t *s_body;
 static lv_obj_t *s_footer;
 static lv_obj_t *s_pane[3];
-static char s_header_shown[48];
+static char s_header_shown[64];
 static char s_body_shown[12 * (GROK_TEXT_COLS + 2)];
 static char s_pane_shown[96];
 
@@ -127,7 +127,7 @@ static void render(lv_obj_t *screen)
     int start;
     size_t used;
     char wifi[24];
-    char header[48];
+    char header[64]; // "GROK 99/99 " + 23-char wifi text fits without truncation
 
     ensure_overlay(screen);
     if (s_panel == NULL)
