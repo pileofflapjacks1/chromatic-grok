@@ -1,3 +1,5 @@
+# Modified by pileofflapjacks1, 2026: Wi-Fi, NimBLE, custom partition table and DIO flash settings.
+# Original: ModRetro oss-chromatic-console-mcu v4.6 (63ed3b6), GPL-3.0.
 # This file was generated using idf.py save-defconfig. It can be edited manually.
 # Espressif IoT Development Framework (ESP-IDF) 5.3.0 Project Minimal Configuration
 #

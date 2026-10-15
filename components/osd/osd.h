@@ -1,3 +1,6 @@
+/* Modified by pileofflapjacks1, 2026: declared the Grok overlay input hook.
+ * Original: ModRetro oss-chromatic-console-mcu v4.6 (63ed3b6), GPL-3.0.
+ */
 #pragma once
 
 #include "osd_shared.h"

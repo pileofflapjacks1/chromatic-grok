@@ -2,7 +2,7 @@
 
 Custom MCU firmware for the ModRetro Chromatic. The stock menu and game path stay in place. This tree adds a Wi-Fi station, a BLE peripheral, and a short text link to Grok.
 
-This is a modified version of the ModRetro Chromatic MCU firmware, GPL-3.0-or-later:
+This is a modified version of the ModRetro Chromatic MCU firmware, distributed under GPL-3.0-only (upstream is GPL-3.0; new files are GPL-3.0-or-later):
 
 - Upstream: https://github.com/ModRetro/oss-chromatic-console-mcu
 - Base commit: `63ed3b62b16768ad2415c9e3b865b438ca40fcc6` ("Publish v4.6")
@@ -13,6 +13,14 @@ The Chromatic MCU is an ESP32-U4WDH with 4 MB of flash and no PSRAM. The screen 
 App version: `0.14.0-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
 
 Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are not in this firmware.
+
+## Disclaimer
+
+- **Unofficial.** Not affiliated with, endorsed by, or sponsored by ModRetro or Nintendo. ModRetro and Chromatic are trademarks of ModRetro; Game Boy is a trademark of Nintendo.
+- **Flash at your own risk.** Custom firmware can leave the handheld unbootable. Back up the full 4 MB flash first (section 1) and keep that file. There is no OTA and no rollback slot; recovery is over USB.
+- **Wi-Fi and BLE are for personal experimentation only.** Turning on the ESP32 radios may fall outside the device's certification (FCC/IC/CE or others). Do not ship or sell devices running this firmware.
+- **Battery life is shorter** while the Grok link keeps the radios awake (the default). `grok sleep on` restores stock light sleep.
+- No warranty. See sections 15 and 16 of the GPL in LICENSE.
 
 ## What you get
 

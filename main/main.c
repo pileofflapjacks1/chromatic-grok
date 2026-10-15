@@ -1,3 +1,6 @@
+/* Modified by pileofflapjacks1, 2026: start the Grok link and enlarge the console task stack.
+ * Original: ModRetro oss-chromatic-console-mcu v4.6 (63ed3b6), GPL-3.0.
+ */
 #include <stdio.h>
 #include <stdbool.h>
 

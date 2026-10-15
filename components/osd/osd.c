@@ -1,3 +1,6 @@
+/* Modified by pileofflapjacks1, 2026: added an input hook for the Grok overlay.
+ * Original: ModRetro oss-chromatic-console-mcu v4.6 (63ed3b6), GPL-3.0.
+ */
 #include "osd.h"
 
 #include "button.h"
