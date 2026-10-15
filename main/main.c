@@ -36,6 +36,7 @@
 #include "settings.h"
 #include "silent.h"
 #include "pwrmgr.h"
+#include "grok.h"
 
 enum {
     kLVGL_TickPeriod_us = 1000u, // 1 millisecond
@@ -333,6 +334,7 @@ void app_main(void)
 
     OSD_Initialize();
     OSD_Default_Init(scr);
+    Grok_Init(scr);
     register_update_callbacks();
 
     Gfx_Start(scr);
@@ -342,6 +344,7 @@ void app_main(void)
     // Prompt to be printed before each line.
     ReplConfig.prompt = "mcu> ";
     ReplConfig.max_cmdline_length = 1024;
+    ReplConfig.task_stack_size = 8192;
 
     ReplHWConfig.rx_gpio_num = GPIO_NUM_35;
     ReplHWConfig.tx_gpio_num = GPIO_NUM_36;
@@ -350,6 +353,7 @@ void app_main(void)
     esp_console_register_help_command();
     // All commands must be registered prior to starting the REPL
     ESP_ERROR_CHECK(esp_console_start_repl(pRepl));
+    Grok_Start();
 
     vTaskDelay( pdMS_TO_TICKS(2000) );
     xTaskCreate(PwrMgr_Task, "pwr_mgr_task", kSleepTask_StackDepth, NULL, kSleepTask_Priority, NULL);

@@ -27,6 +27,8 @@
 #include <stdint.h>
 
 static const char *TAG = "OSDDef";
+static TabCollection_t *s_SystemList;
+static lv_obj_t *s_OsdScreen;
 
 LV_IMG_DECLARE(menu_status);
 LV_IMG_DECLARE(menu_display);
@@ -447,6 +449,16 @@ static bool IsColorTempTabActive(void)
     return Style_IsGBCMode();
 }
 
+OSD_Result_t OSD_Default_AddSystemItem(TabItem_t *const pItem)
+{
+    if ((s_SystemList == NULL) || (s_OsdScreen == NULL) || (pItem == NULL))
+    {
+        return kOSD_Result_Err_NullDataPtr;
+    }
+
+    return Tab_AddItem(s_SystemList, pItem, s_OsdScreen);
+}
+
 static void CreateMenuSystem(lv_obj_t *const pScreen)
 {
     static TabCollection_t SystemList;
@@ -454,6 +466,8 @@ static void CreateMenuSystem(lv_obj_t *const pScreen)
     OSD_Result_t eResult;
 
     sys_dlist_init(&SystemList.WidgetList);
+    s_SystemList = &SystemList;
+    s_OsdScreen = pScreen;
 
     static MenuTab_t Tab_System = {
         .Widget = {

@@ -1,3 +1,20 @@
+## 0.14.0-grok
+
+Modified version of the ModRetro Chromatic MCU firmware at `63ed3b62b16768ad2415c9e3b865b438ca40fcc6` (v4.6). GPL-3.0-or-later. See NOTICE.
+
+### Added
+- Wi-Fi station mode. Credentials live in the `grokcfg` NVS namespace and are set from the serial console.
+- BLE peripheral `ChromaticGrok` with the same line protocol as the `mcu>` console.
+- Grok link: `grok ask` posts to a configurable `http://` proxy, and `grok show` displays a reply sent by a companion. Short replies use the stock font on the 160×144 screen.
+- Python proxy and serial companion in `companion/`.
+- System-menu row GROK, and Start while the menu is open, to read and page a reply.
+
+### Changed
+- App version `0.14.0-grok`. Menu firmware string `4.6g` (display only).
+- Custom partition table. The factory app is `0x1F0000` bytes. NVS stays at `0x9000` / `0x6000`.
+- Light sleep stays off unless `grok sleep on`. Wi-Fi and BLE cannot survive the stock light sleep.
+- Project name is `chromatic_grok`.
+
 ## v0.13.8
 
 ### Changed

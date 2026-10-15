@@ -19,9 +19,15 @@ enum {
     kOSD_NumPixels = kOSD_Height_px * kOSD_Width_px,
 };
 
+#include <stdbool.h>
+
+// Return true to consume this frame's button edges. Stock widgets are skipped.
+typedef bool (*fnOSDInputHook_t)(void);
+
 OSD_Result_t OSD_Initialize(void);
 OSD_Result_t OSD_AddWidget(OSD_Widget_t *const pWidget);
 void OSD_Draw(void* arg);
 void OSD_HandleInputs(void);
+void OSD_SetInputHook(fnOSDInputHook_t fn);
 bool OSD_IsVisible(void);
 void OSD_SetVisiblityState(const bool IsVisible);

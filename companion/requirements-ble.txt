@@ -1,0 +1,3 @@
+# Optional. The supported companion path is serial (see requirements.txt).
+# A BLE central can use the same newline commands. UUIDs are in docs/PROTOCOL.md.
+bleak>=0.22

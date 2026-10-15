@@ -13,6 +13,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "osd.h"
+#include "grok.h"
 
 #include <stdbool.h>
 
@@ -66,6 +67,12 @@ void PwrMgr_Task(void *arg)
     {
         if (ulTaskNotifyTake(pdTRUE, portMAX_DELAY))
         {
+            if (Grok_WantsRadioAwake())
+            {
+                // Light sleep drops Wi-Fi and BLE. The Grok link stays awake on purpose.
+                continue;
+            }
+
             // Pause both tasks to ensure that they finish up any work in progress. Since the Sleep task is of higher priority,
             // the delays below are taken advantage of to permit a context switch.
             FPGA_Tx_Pause();

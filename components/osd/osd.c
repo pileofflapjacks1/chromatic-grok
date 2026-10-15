@@ -18,6 +18,12 @@ typedef struct OSD {
 
 static const char* TAG = "OSD";
 static OSD_t OSD;
+static fnOSDInputHook_t s_InputHook;
+
+void OSD_SetInputHook(fnOSDInputHook_t fn)
+{
+    s_InputHook = fn;
+}
 
 OSD_Result_t OSD_Initialize(void)
 {
@@ -88,6 +94,11 @@ void OSD_Draw(void* arg)
 
 void OSD_HandleInputs(void)
 {
+    if ((s_InputHook != NULL) && s_InputHook())
+    {
+        return;
+    }
+
     sys_dnode_t* pNode = NULL;
 
     SYS_DLIST_FOR_EACH_NODE(&OSD.WidgetList, pNode)

@@ -1,0 +1,18 @@
+chromatic-grok
+Copyright (C) 2026 Joe
+
+This is a modified version of the ModRetro Chromatic MCU firmware:
+
+    https://github.com/ModRetro/oss-chromatic-console-mcu
+    commit 63ed3b62b16768ad2415c9e3b865b438ca40fcc6
+    ("Publish v4.6")
+
+The upstream firmware is licensed under the GNU General Public License,
+version 3 or later. The full license is in LICENSE. This modification is
+also released under GPL-3.0-or-later.
+
+The changes add a Wi-Fi station, a BLE peripheral, and a short-text Grok
+link (serial, BLE, and an HTTP proxy). They do not add Shiny Relay features.
+The companion scripts under companion/ are part of the same GPL work.
+
+Date of this modification: 2026.
