@@ -43,7 +43,7 @@ static esp_err_t on_http(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-bool grok_http_ask(const char *url, const char *prompt, char *reply, size_t reply_cap)
+bool grok_http_ask(const char *url, const char *token, const char *prompt, char *reply, size_t reply_cap)
 {
     static char body[768];
     static char raw[1536];
@@ -111,6 +111,14 @@ bool grok_http_ask(const char *url, const char *prompt, char *reply, size_t repl
 
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_header(client, "User-Agent", "chromatic-grok");
+    if ((token != NULL) && (token[0] != '\0'))
+    {
+        char auth[GROK_TOKEN_MAX + 8];
+
+        snprintf(auth, sizeof(auth), "Bearer %s", token);
+        esp_http_client_set_header(client, "Authorization", auth);
+        memset(auth, 0, sizeof(auth));
+    }
     esp_http_client_set_post_field(client, body, (int)strlen(body));
     err = esp_http_client_perform(client);
     status = esp_http_client_get_status_code(client);
@@ -119,6 +127,11 @@ bool grok_http_ask(const char *url, const char *prompt, char *reply, size_t repl
     if (err != ESP_OK)
     {
         snprintf(reply, reply_cap, "http %s", esp_err_to_name(err));
+        return false;
+    }
+    if (status == 401)
+    {
+        snprintf(reply, reply_cap, "proxy rejected the token. grok token set <token>");
         return false;
     }
 

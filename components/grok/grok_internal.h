@@ -11,6 +11,7 @@
 #define GROK_URL_MAX 160
 #define GROK_SSID_MAX 32
 #define GROK_PASS_MAX 64
+#define GROK_TOKEN_MAX 64
 
 struct _lv_obj_t;
 
@@ -27,6 +28,10 @@ bool grok_store_set_wifi(const char *ssid, const char *pass);
 void grok_store_clear_wifi(void);
 bool grok_store_set_url(const char *url);
 void grok_store_get_url(char *out, size_t out_cap);
+bool grok_store_set_token(const char *token);
+void grok_store_clear_token(void);
+void grok_store_get_token(char *out, size_t out_cap);
+bool grok_store_has_token(void);
 
 bool grok_wifi_start(void);
 bool grok_wifi_set(const char *ssid, const char *pass);
@@ -41,8 +46,9 @@ void grok_wifi_format(char *out, size_t out_cap);
 bool grok_ble_start(void);
 void grok_ble_queue_text(const char *text);
 void grok_ble_format(char *out, size_t out_cap);
+void grok_ble_unpair(void);
 
-bool grok_http_ask(const char *url, const char *prompt, char *reply, size_t reply_cap);
+bool grok_http_ask(const char *url, const char *token, const char *prompt, char *reply, size_t reply_cap);
 
 void grok_ui_init(struct _lv_obj_t *screen);
 void grok_ui_open(void);

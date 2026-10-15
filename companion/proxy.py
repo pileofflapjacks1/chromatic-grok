@@ -5,10 +5,17 @@
 
 The Chromatic posts {"prompt": "...", "max_chars": 640} to /v1/ask.
 This process calls https://api.x.ai/v1/responses and answers {"reply": "..."}.
-There is no authentication. Run it only on a network you trust.
+
+Security:
+- Every /v1/ask request must carry "Authorization: Bearer <GROK_PROXY_TOKEN>".
+  The token is compared in constant time. Anything else gets 401.
+- The proxy binds 127.0.0.1 unless GROK_PROXY_ALLOW_LAN=1 is set.
+- The xAI key is never returned to a client or written to the log.
 """
 
 import argparse
+import hmac
+import re
 import json
 import os
 import sys
@@ -25,6 +32,51 @@ DEFAULT_MODEL = "grok-4.7"
 XAI_URL = "https://api.x.ai/v1/responses"
 MAX_PROMPT = 2000
 DEFAULT_CHARS = 640
+DEFAULT_HOST = "127.0.0.1"
+LAN_HOST = "0.0.0.0"
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+MIN_TOKEN_LEN = 16
+_KEY_PATTERN = re.compile(r"xai-[A-Za-z0-9_\-]+")
+
+
+def redact(text):
+    """Remove the API key (and anything shaped like an xAI key) from text."""
+    if not text:
+        return text
+    key = os.environ.get("XAI_API_KEY", "").strip()
+    if key:
+        text = text.replace(key, "[redacted]")
+    return _KEY_PATTERN.sub("[redacted]", text)
+
+
+def expected_token():
+    return os.environ.get("GROK_PROXY_TOKEN", "").strip()
+
+
+def check_auth(header_value, token=None):
+    """Constant-time check of an Authorization header against the token."""
+    if token is None:
+        token = expected_token()
+    if not token or not isinstance(header_value, str):
+        return False
+    prefix = "Bearer "
+    if not header_value.startswith(prefix):
+        return False
+    given = header_value[len(prefix):].strip()
+    return hmac.compare_digest(given.encode("utf-8"), token.encode("utf-8"))
+
+
+def lan_allowed():
+    return os.environ.get("GROK_PROXY_ALLOW_LAN", "").strip().lower() in ("1", "true", "yes")
+
+
+def resolve_host(requested):
+    """Loopback unless LAN access is explicitly allowed."""
+    if lan_allowed():
+        return requested or LAN_HOST
+    if requested and requested not in LOOPBACK_HOSTS:
+        raise ValueError("binding %s needs GROK_PROXY_ALLOW_LAN=1" % requested)
+    return requested or DEFAULT_HOST
 
 
 def fold_ascii(text, max_chars):
@@ -136,7 +188,7 @@ def ask_xai(prompt, max_chars=DEFAULT_CHARS, timeout=18):
         except json.JSONDecodeError:
             return None, "upstream http %s" % exc.code
         message = extract_reply(payload) or ("upstream http %s" % exc.code)
-        return None, message
+        return None, redact(message)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return None, "upstream unreachable"
     reply = fold_ascii(extract_reply(payload), max_chars)
@@ -159,6 +211,9 @@ class AskHandler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path not in ("/v1/ask", "/"):
             self._send(404, {"error": "not found"})
+            return
+        if not check_auth(self.headers.get("Authorization")):
+            self._send(401, {"error": "unauthorized"})
             return
         length = int(self.headers.get("Content-Length", "0") or "0")
         if length < 0 or length > 8192:
@@ -191,18 +246,34 @@ class AskHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
+        if status == 401:
+            self.send_header("WWW-Authenticate", "Bearer")
         self.end_headers()
         self.wfile.write(body)
 
     def log_message(self, fmt, *args):
-        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+        # Request line and status only. Headers (and so the token) are not logged.
+        sys.stderr.write("%s - %s\n" % (self.address_string(), redact(fmt % args)))
 
 
 def main(argv):
     parser = argparse.ArgumentParser(description="Chromatic Grok LAN proxy")
-    parser.add_argument("--host", default=os.environ.get("GROK_PROXY_HOST", "0.0.0.0"))
+    parser.add_argument("--host", default=os.environ.get("GROK_PROXY_HOST", ""),
+                        help="default 127.0.0.1; a LAN address needs GROK_PROXY_ALLOW_LAN=1")
     parser.add_argument("--port", type=int, default=int(os.environ.get("GROK_PROXY_PORT", "8787")))
     args = parser.parse_args(argv)
+    try:
+        host = resolve_host(args.host.strip())
+    except ValueError as exc:
+        sys.stderr.write("%s\n" % exc)
+        return 2
+    token = expected_token()
+    if len(token) < MIN_TOKEN_LEN:
+        sys.stderr.write(
+            "GROK_PROXY_TOKEN must be set (at least %d characters). Generate one with:\n"
+            "  python3 -c 'import secrets; print(secrets.token_urlsafe(24))'\n" % MIN_TOKEN_LEN)
+        return 2
+    args.host = host
     if not os.environ.get("XAI_API_KEY", "").strip():
         sys.stderr.write("XAI_API_KEY is not set. The proxy will answer with an error until it is.\n")
     httpd = ThreadingHTTPServer((args.host, args.port), AskHandler)

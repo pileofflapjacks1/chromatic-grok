@@ -262,7 +262,7 @@ static void wifi_usage(void)
 
 static void grok_usage(void)
 {
-    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | page next|prev|N | ask <prompt> | show <text>\n");
+    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | ble unpair | page next|prev|N | ask <prompt> | show <text>\n");
 }
 
 static void cmd_wifi(int argc, char **argv)
@@ -330,10 +330,11 @@ static void cmd_grok(int argc, char **argv)
         grok_wifi_format(wifi, sizeof(wifi));
         grok_ble_format(ble, sizeof(ble));
         grok_store_get_url(url, sizeof(url));
-        snprintf(line, sizeof(line), "grok: %s %s %s url=%s\n",
+        snprintf(line, sizeof(line), "grok: %s %s %s url=%s token=%s\n",
                  wifi, ble,
                  s_keep_awake ? "awake" : "light-sleep allowed",
-                 (url[0] != '\0') ? url : "(unset)");
+                 (url[0] != '\0') ? url : "(unset)",
+                 grok_store_has_token() ? "set" : "unset");
         grok_say(line);
         return;
     }
@@ -369,6 +370,32 @@ static void cmd_grok(int argc, char **argv)
             return;
         }
         grok_usage();
+        return;
+    }
+    if (strcmp(argv[1], "token") == 0)
+    {
+        if ((argc == 4) && (strcmp(argv[2], "set") == 0))
+        {
+            if (strlen(argv[3]) > GROK_TOKEN_MAX)
+            {
+                grok_say("grok: token is too long\n");
+                return;
+            }
+            grok_say(grok_store_set_token(argv[3]) ? "grok: token saved\n" : "grok: could not save token\n");
+            return;
+        }
+        if ((argc == 3) && (strcmp(argv[2], "clear") == 0))
+        {
+            grok_store_clear_token();
+            grok_say("grok: token cleared\n");
+            return;
+        }
+        grok_usage();
+        return;
+    }
+    if ((strcmp(argv[1], "ble") == 0) && (argc == 3) && (strcmp(argv[2], "unpair") == 0))
+    {
+        grok_ble_unpair();
         return;
     }
     if (strcmp(argv[1], "url") == 0)
@@ -549,6 +576,7 @@ static void radio_task(void *arg)
     {
         GrokJob_t job;
         char url[GROK_URL_MAX + 1];
+        char token[GROK_TOKEN_MAX + 1];
         char reply[GROK_REPLY_MAX + 1];
 
         if (xQueueReceive(s_jobs, &job, portMAX_DELAY) != pdTRUE)
@@ -576,7 +604,9 @@ static void radio_task(void *arg)
             continue;
         }
 
-        grok_http_ask(url, job.prompt, reply, sizeof(reply));
+        grok_store_get_token(token, sizeof(token));
+        grok_http_ask(url, token, job.prompt, reply, sizeof(reply));
+        memset(token, 0, sizeof(token));
         grok_publish(reply);
     }
 }

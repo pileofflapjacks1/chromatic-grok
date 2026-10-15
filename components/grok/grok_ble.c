@@ -5,6 +5,13 @@
  * BLE peripheral. The same newline commands as the serial console are written
  * to the RX characteristic. Replies are notified on TX, framed with
  * GROK_BEGIN / GROK_END. Notify flushes run on the NimBLE host queue.
+ *
+ * Security: the link must be paired, bonded and encrypted with MITM
+ * protection before RX accepts a write or TX sends a notify. The Chromatic
+ * has a screen and no keypad, so it pairs as DisplayOnly: a random 6-digit
+ * passkey is shown on the handheld and typed on the phone or computer
+ * (LE Secure Connections, passkey entry). Unauthenticated peers get
+ * "insufficient authentication" and no data.
  */
 #include "grok_internal.h"
 
@@ -29,6 +36,7 @@
 #include "host/ble_store.h"
 
 #include "esp_err.h"
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "os/os_mbuf.h"
@@ -81,13 +89,13 @@ static const struct ble_gatt_svc_def s_svcs[] = {
             {
                 .uuid = &s_rx_uuid.u,
                 .access_cb = gatt_access,
-                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+                .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_ENC | BLE_GATT_CHR_F_WRITE_AUTHEN,
             },
             {
                 .uuid = &s_tx_uuid.u,
                 .access_cb = gatt_access,
                 .val_handle = &s_tx_handle,
-                .flags = BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ,
+                .flags = BLE_GATT_CHR_F_NOTIFY | BLE_GATT_CHR_F_READ | BLE_GATT_CHR_F_READ_ENC | BLE_GATT_CHR_F_READ_AUTHEN,
             },
             {
                 0,
@@ -98,6 +106,22 @@ static const struct ble_gatt_svc_def s_svcs[] = {
         0,
     },
 };
+
+/* True only for an encrypted, MITM-authenticated (passkey) link. */
+static bool conn_secure(uint16_t conn)
+{
+    struct ble_gap_conn_desc desc;
+
+    if (conn == BLE_HS_CONN_HANDLE_NONE)
+    {
+        return false;
+    }
+    if (ble_gap_conn_find(conn, &desc) != 0)
+    {
+        return false;
+    }
+    return desc.sec_state.encrypted && desc.sec_state.authenticated;
+}
 
 static void lock(void)
 {
@@ -143,6 +167,12 @@ static void tx_flush(struct ble_npl_event *ev)
     left = (s_tx_off < s_tx_len) ? (s_tx_len - s_tx_off) : 0;
     if ((conn == BLE_HS_CONN_HANDLE_NONE) || (handle == 0) || (left == 0))
     {
+        unlock();
+        return;
+    }
+    if (!conn_secure(conn))
+    {
+        // Never notify replies over an unpaired or unencrypted link.
         unlock();
         return;
     }
@@ -225,9 +255,15 @@ static int gatt_access(uint16_t conn_handle, uint16_t attr_handle, struct ble_ga
     uint16_t len;
     uint16_t got = 0;
 
-    (void)conn_handle;
     (void)attr_handle;
     (void)arg;
+
+    // The GATT flags already require encryption and authentication. Check
+    // again so a stack or config change cannot open the command path.
+    if (!conn_secure(conn_handle))
+    {
+        return BLE_ATT_ERR_INSUFFICIENT_AUTHEN;
+    }
 
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR)
     {
@@ -319,8 +355,8 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             {
                 s_conn = event->connect.conn_handle;
                 s_advertising = false;
-                printf("ble: connected\n");
-                tx_schedule(20);
+                printf("ble: connected; pairing required\n");
+                ble_gap_security_initiate(s_conn);
             }
             else
             {
@@ -338,6 +374,49 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             return 0;
         case BLE_GAP_EVENT_MTU:
             return 0;
+        case BLE_GAP_EVENT_ENC_CHANGE:
+            if ((event->enc_change.status == 0) && conn_secure(event->enc_change.conn_handle))
+            {
+                printf("ble: paired and encrypted\n");
+                grok_ui_close();
+                tx_schedule(20);
+            }
+            else
+            {
+                printf("ble: pairing failed (%d)\n", event->enc_change.status);
+                ble_gap_terminate(event->enc_change.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+            }
+            return 0;
+        case BLE_GAP_EVENT_PASSKEY_ACTION:
+            if (event->passkey.params.action == BLE_SM_IOACT_DISP)
+            {
+                struct ble_sm_io pk;
+                char msg[96];
+
+                memset(&pk, 0, sizeof(pk));
+                pk.action = BLE_SM_IOACT_DISP;
+                pk.passkey = esp_random() % 1000000u;
+                // Show the passkey on the handheld screen only. It is not
+                // sent over BLE.
+                snprintf(msg, sizeof(msg), "BLE pairing\n\nPasskey: %06lu\n\nEnter it on the other device.",
+                         (unsigned long)pk.passkey);
+                grok_ui_set_body(msg);
+                grok_ui_open();
+                ble_sm_inject_io(event->passkey.conn_handle, &pk);
+            }
+            return 0;
+        case BLE_GAP_EVENT_REPEAT_PAIRING:
+        {
+            struct ble_gap_conn_desc desc;
+
+            // A known peer lost its bond. Drop the old bond so it can pair
+            // again with a fresh passkey.
+            if (ble_gap_conn_find(event->repeat_pairing.conn_handle, &desc) == 0)
+            {
+                ble_store_util_delete_peer(&desc.peer_id_addr);
+            }
+            return BLE_GAP_REPEAT_PAIRING_RETRY;
+        }
         case BLE_GAP_EVENT_SUBSCRIBE:
             if (event->subscribe.cur_notify)
             {
@@ -401,9 +480,13 @@ bool grok_ble_start(void)
     ble_hs_cfg.reset_cb = on_reset;
     ble_hs_cfg.sync_cb = on_sync;
     ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
-    ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
-    ble_hs_cfg.sm_bonding = 0;
-    ble_hs_cfg.sm_sc = 0;
+    // DisplayOnly + MITM + Secure Connections = passkey entry pairing.
+    ble_hs_cfg.sm_io_cap = BLE_HS_IO_DISPLAY_ONLY;
+    ble_hs_cfg.sm_bonding = 1;
+    ble_hs_cfg.sm_mitm = 1;
+    ble_hs_cfg.sm_sc = 1;
+    ble_hs_cfg.sm_our_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
+    ble_hs_cfg.sm_their_key_dist = BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID;
 
     ble_svc_gap_init();
     ble_svc_gatt_init();
@@ -432,6 +515,23 @@ bool grok_ble_start(void)
     nimble_port_freertos_init(host_task);
     s_started = true;
     return true;
+}
+
+void grok_ble_unpair(void)
+{
+    int rc;
+
+    if (!s_started)
+    {
+        grok_say("ble: not started\n");
+        return;
+    }
+    if (s_conn != BLE_HS_CONN_HANDLE_NONE)
+    {
+        ble_gap_terminate(s_conn, BLE_ERR_REM_USER_CONN_TERM);
+    }
+    rc = ble_store_clear();
+    grok_say((rc == 0) ? "ble: all bonds cleared\n" : "ble: could not clear bonds\n");
 }
 
 void grok_ble_queue_text(const char *text)
@@ -489,7 +589,7 @@ void grok_ble_format(char *out, size_t out_cap)
     }
     if (s_started && (s_conn != BLE_HS_CONN_HANDLE_NONE))
     {
-        text = "ble on";
+        text = conn_secure(s_conn) ? "ble paired" : "ble unpaired";
     }
     else if (s_started && s_advertising)
     {
@@ -509,6 +609,11 @@ bool grok_ble_start(void)
 void grok_ble_queue_text(const char *text)
 {
     (void)text;
+}
+
+void grok_ble_unpair(void)
+{
+    grok_say("ble: disabled in sdkconfig\n");
 }
 
 void grok_ble_format(char *out, size_t out_cap)
