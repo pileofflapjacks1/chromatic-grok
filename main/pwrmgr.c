@@ -1,3 +1,6 @@
+/* Modified by pileofflapjacks1, 2026: skip light sleep while the Grok radios are kept awake.
+ * Original: ModRetro oss-chromatic-console-mcu v4.6 (63ed3b6), GPL-3.0.
+ */
 #include "pwrmgr.h"
 
 #include "board.h"

@@ -1,5 +1,5 @@
 chromatic-grok
-Copyright (C) 2026 Joe
+Copyright (C) 2026 pileofflapjacks1
 
 This is a modified version of the ModRetro Chromatic MCU firmware:
 
@@ -7,12 +7,50 @@ This is a modified version of the ModRetro Chromatic MCU firmware:
     commit 63ed3b62b16768ad2415c9e3b865b438ca40fcc6
     ("Publish v4.6")
 
-The upstream firmware is licensed under the GNU General Public License,
-version 3 or later. The full license is in LICENSE. This modification is
-also released under GPL-3.0-or-later.
+Upstream copyright and license
+------------------------------
+The upstream repository carries no explicit copyright line. Its only
+attribution text is, verbatim from upstream README.md:
+
+    "This repository houses the ModRetro Chromatic's MCU design files."
+
+Its LICENSE file is the unmodified GNU General Public License, version 3
+(GitHub identifies it as GPL-3.0), with no "or any later version" grant.
+Upstream commits are authored by ModRetro staff (ameen@modretro.com,
+oss@modretro.com). All rights in the upstream work remain with its authors.
+
+Upstream also includes components/dlist/dlist.h, verbatim:
+
+    "Copyright (c) 2013-2015 Wind River Systems, Inc."
+    "SPDX-License-Identifier: Apache-2.0"
+
+Apache-2.0 is compatible with GPL-3.0. That notice is kept in the file.
+
+This modification
+-----------------
+New files written for this project (components/grok/, companion/, web/,
+tests/, docs/PROTOCOL.md, partitions.csv) are GPL-3.0-or-later. Because the
+upstream work is GPL-3.0 only, the combined firmware is distributed under
+GPL-3.0-only. The full license is in LICENSE.
+
+Upstream files changed here carry a "Modified by pileofflapjacks1, 2026"
+note at the top: CMakeLists.txt, main/CMakeLists.txt, main/main.c,
+main/pwrmgr.c, components/osd/osd.c, components/osd/osd.h,
+components/osd/osd_default.c, components/osd/osd_default.h,
+sdkconfig.defaults. README.md, CHANGELOG.md and .gitignore were also edited.
+The full change list is the git history after commit 63ed3b6.
 
 The changes add a Wi-Fi station, a BLE peripheral, and a short-text Grok
 link (serial, BLE, and an HTTP proxy). They do not add Shiny Relay features.
-The companion scripts under companion/ are part of the same GPL work.
 
-Date of this modification: 2026.
+Source for binaries
+-------------------
+This repository publishes no firmware binaries. If a binary is ever
+distributed, the exact source tag it was built from will be published with
+it, as GPL-3.0 section 6 requires.
+
+Trademarks
+----------
+ModRetro and Chromatic are trademarks of ModRetro. Game Boy is a trademark
+of Nintendo. This project is not affiliated with, endorsed by, or sponsored
+by ModRetro or Nintendo.

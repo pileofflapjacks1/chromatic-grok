@@ -1,3 +1,6 @@
+/* Modified by pileofflapjacks1, 2026: added the GROK row and Start shortcut.
+ * Original: ModRetro oss-chromatic-console-mcu v4.6 (63ed3b6), GPL-3.0.
+ */
 #include "osd_default.h"
 
 #include "battery.h"
