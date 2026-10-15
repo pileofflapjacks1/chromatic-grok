@@ -18,7 +18,7 @@ Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are no
 
 - Stock OSD, with a GROK row on the System tab and a Start shortcut while the menu is open.
 - Wi-Fi station mode. SSID and password are stored in NVS (`grokcfg`) and can be set from the serial console.
-- BLE peripheral named `ChromaticGrok`. It speaks the same line commands as the console.
+- BLE peripheral named `ChromaticGrok`. It speaks the same line commands as the console, but only after passkey pairing (encrypted, bonded, MITM-protected).
 - `grok ask` posts the prompt to an `http://` proxy you run. The proxy holds the xAI key.
 - `grok show` displays text the computer already has, so a reply can reach the screen with no device Wi-Fi.
 - Replies use the stock `fingfai` font, 32 columns, 12 lines per page.
@@ -125,17 +125,25 @@ In one terminal, from this repo:
 cd ~/Projects/chromatic-grok
 python3 -m pip install -r companion/requirements.txt
 export XAI_API_KEY="your key"
+export GROK_PROXY_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')"
+echo "$GROK_PROXY_TOKEN"   # you will type this into the Chromatic once
+export GROK_PROXY_ALLOW_LAN=1   # the handheld is on the LAN, so opt in
 python3 companion/proxy.py
 ```
 
-The proxy listens on `0.0.0.0:8787` with no authentication. Use it on a LAN you trust. `GET /health` returns `{"ok": true}`. Copy `companion/.env.example` if you want the variable names in one place. Do not commit a filled-in `.env`.
+The proxy binds `127.0.0.1:8787` by default. The handheld needs a LAN address, so set `GROK_PROXY_ALLOW_LAN=1` (it then binds `0.0.0.0`, or the `--host` / `GROK_PROXY_HOST` you give). Without that variable a non-loopback `--host` is refused.
+
+Every `POST /v1/ask` needs `Authorization: Bearer <GROK_PROXY_TOKEN>` (at least 16 characters). The token is checked in constant time; anything else gets `401`. The proxy will not start without a token. The xAI key is never sent to a client or written to the log, and key-shaped strings in upstream errors are redacted. Traffic is still plain HTTP, so use a LAN you trust. `GET /health` returns `{"ok": true}`. Copy `companion/.env.example` if you want the variable names in one place. Do not commit a filled-in `.env`.
 
 Find this computer's LAN address, then on the Chromatic:
 
 ```text
 grok url set http://192.168.1.20:8787/v1/ask
+grok token set <the GROK_PROXY_TOKEN value>
 grok ask What is a Game Boy?
 ```
+
+The token is stored in NVS (`grokcfg/token`) and is never printed; `grok status` shows only `token=set` or `token=unset`. `grok token clear` removes it.
 
 The screen shows `...`, then the reply. Open the Chromatic menu and press Start, or open System → GROK and press A. Up and Down change page. A sends the last prompt again. B or Start closes the overlay.
 
@@ -199,7 +207,9 @@ The FPGA gives the MCU buttons while the stock menu is open. Start is the shortc
 
 ## BLE
 
-The device advertises as `ChromaticGrok`. Write newline-terminated commands to the RX characteristic and subscribe to TX. The service UUID is `8f3c0001-6b2a-4d5e-9c11-0a1b2c3d4e5f`. RX is `…0002`, TX is `…0003`. There is no pairing. Treat it like the serial port: fine on a trusted bench, not a locked-down link. A line is about 240 bytes, so long `grok show` text should use serial. `companion/requirements-ble.txt` lists `bleak` for anyone writing a central. The Python CLI does not require it.
+The device advertises as `ChromaticGrok`. Write newline-terminated commands to the RX characteristic and subscribe to TX. The service UUID is `8f3c0001-6b2a-4d5e-9c11-0a1b2c3d4e5f`. RX is `…0002`, TX is `…0003`.
+
+Pairing is required. The Chromatic pairs as a display-only device using LE Secure Connections with passkey entry: when a central connects, a random 6-digit passkey appears on the handheld screen and you type it on the phone or computer. The bond is stored (up to 3). RX writes need an encrypted, authenticated link, TX reads need the same, and notifications are only sent on such a link. An unpaired central gets "insufficient authentication" and no data. `grok ble unpair` (serial console) clears every bond. A line is about 240 bytes, so long `grok show` text should use serial. `companion/requirements-ble.txt` lists `bleak` for anyone writing a central. The Python CLI does not require it.
 
 ## Host checks
 
@@ -217,7 +227,8 @@ That compiles `grok_text` with the host `cc` and checks the proxy's reply parser
 - Light sleep is off by default, so the battery will not last as long as stock.
 - The font is ASCII. Other bytes become `?`. Replies are capped at 640 characters, 32 columns, and 12 lines per page.
 - One HTTP request at a time. The device speaks plain `http://` only, with no TLS and no API key.
-- The proxy has no authentication.
+- The proxy uses a shared bearer token over plain HTTP. Anyone who can sniff the LAN can see the token; rotate it if the network is shared.
+- BLE pairing was written against the NimBLE v5.3 API and has not been tested with a real central here.
 - BLE lines are about 240 bytes. The serial console splits at 32 arguments unless you quote the prompt.
 - There is no PSRAM. Wi-Fi and BLE buffers are reduced. AMPDU and HTTPS are off.
 - The fourth System row (FIRMWARE, PLAYER #, optional SERIAL #, then GROK) can sit near the battery icon.

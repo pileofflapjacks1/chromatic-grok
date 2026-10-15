@@ -23,6 +23,7 @@ static char s_ssid[GROK_SSID_MAX + 1];
 static char s_pass[GROK_PASS_MAX + 1];
 static char s_ip[16];
 static char s_url[GROK_URL_MAX + 1];
+static char s_token[GROK_TOKEN_MAX + 1];
 
 static void lock(void)
 {
@@ -81,6 +82,7 @@ void grok_store_init(void)
     load_str("ssid", s_ssid, sizeof(s_ssid));
     load_str("pass", s_pass, sizeof(s_pass));
     load_str("url", s_url, sizeof(s_url));
+    load_str("token", s_token, sizeof(s_token));
     if (s_ssid[0] != '\0')
     {
         printf("wifi: stored ssid=%s\n", s_ssid);
@@ -144,6 +146,66 @@ void grok_store_get_url(char *out, size_t out_cap)
     lock();
     snprintf(out, out_cap, "%s", s_url);
     unlock();
+}
+
+/* The proxy token is a shared secret. It is stored in NVS and sent as a
+ * Bearer header, and is never printed. */
+bool grok_store_set_token(const char *token)
+{
+    esp_err_t a;
+    esp_err_t b;
+
+    if ((token == NULL) || (token[0] == '\0') || (strlen(token) > GROK_TOKEN_MAX))
+    {
+        return false;
+    }
+    if (!store_open())
+    {
+        return false;
+    }
+    a = nvs_set_str(s_nvs, "token", token);
+    b = nvs_commit(s_nvs);
+    if ((a != ESP_OK) || (b != ESP_OK))
+    {
+        return false;
+    }
+    lock();
+    snprintf(s_token, sizeof(s_token), "%s", token);
+    unlock();
+    return true;
+}
+
+void grok_store_clear_token(void)
+{
+    if (store_open())
+    {
+        nvs_erase_key(s_nvs, "token");
+        nvs_commit(s_nvs);
+    }
+    lock();
+    memset(s_token, 0, sizeof(s_token));
+    unlock();
+}
+
+void grok_store_get_token(char *out, size_t out_cap)
+{
+    if ((out == NULL) || (out_cap == 0))
+    {
+        return;
+    }
+    lock();
+    snprintf(out, out_cap, "%s", s_token);
+    unlock();
+}
+
+bool grok_store_has_token(void)
+{
+    bool has;
+
+    lock();
+    has = (s_token[0] != '\0');
+    unlock();
+    return has;
 }
 
 static void fill_config(wifi_config_t *cfg)
