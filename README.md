@@ -223,7 +223,7 @@ That compiles `grok_text` with the host `cc` and checks the proxy's reply parser
 
 ## Known limitations
 
-- This tree was not built with ESP-IDF and was not flashed or tested on a Chromatic here. Build it locally before trusting a flash. NimBLE include paths and Kconfig names follow ESP-IDF v5.3; if `idf.py` disagrees, the build log is the source of truth.
+- This tree builds and links with ESP-IDF v5.3 (IRAM 14.3 KB free, static DRAM 11.3 KB free, app 26% free), but it has not been flashed or tested on a Chromatic here. Build it locally before trusting a flash. NimBLE include paths and Kconfig names follow ESP-IDF v5.3; if `idf.py` disagrees, the build log is the source of truth.
 - Light sleep is off by default, so the battery will not last as long as stock.
 - The font is ASCII. Other bytes become `?`. Replies are capped at 640 characters, 32 columns, and 12 lines per page.
 - One HTTP request at a time. The device speaks plain `http://` only, with no TLS and no API key.

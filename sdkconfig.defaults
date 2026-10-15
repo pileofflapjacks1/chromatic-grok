@@ -49,3 +49,14 @@ CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
 # CONFIG_MBEDTLS_CERTIFICATE_BUNDLE is not set
 
 CONFIG_LWIP_MAX_SOCKETS=8
+
+# --- Memory fit (ESP32, no PSRAM). Wi-Fi + NimBLE + LVGL overflowed static
+# DRAM by ~21.9 KB and IRAM by ~6.9 KB with the stock settings.
+# LVGL allocates from the heap instead of a 32 KB static pool. Same objects,
+# same UI; the ESP32 heap includes DRAM that static .bss cannot use.
+CONFIG_LV_MEM_CUSTOM=y
+# -Os instead of -Og. Smaller code in IRAM and flash.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+# Wi-Fi TX/RX hot paths stay in flash. Lower peak throughput, which a short
+# HTTP request does not need.
+# CONFIG_ESP_WIFI_IRAM_OPT is not set
