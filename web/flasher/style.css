@@ -1,0 +1,28 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; line-height: 1.45; }
+body { max-width: 46rem; margin: 0 auto; padding: 1rem; }
+section { border-top: 1px solid #8884; padding: 0.5rem 0 1rem; }
+.untested { display: inline-block; background: #fde68a; color: #422006; padding: 0.15rem 0.5rem; border-radius: 0.25rem; font-weight: 600; }
+.disclaimer { font-size: 0.85rem; opacity: 0.85; }
+.error { background: #fee2e2; color: #7f1d1d; padding: 0.75rem; border-radius: 0.25rem; font-weight: 600; }
+.note { font-size: 0.9rem; }
+.checks { list-style: none; padding: 0; }
+.checks li { margin: 0.4rem 0; }
+.ok::before { content: "✓ "; color: #15803d; }
+.bad::before { content: "✗ "; color: #b91c1c; }
+button { font-size: 1rem; padding: 0.4rem 1rem; }
+button:disabled { opacity: 0.45; }
+progress { width: 100%; }
+pre { overflow-x: auto; font-size: 0.8rem; }
+label { display: block; margin: 0.3rem 0; }
+#restore.attention { outline: 3px solid #b91c1c; outline-offset: 4px; }
+.steps { display: flex; gap: 1rem; list-style: none; padding: 0; font-weight: 600; opacity: 0.6; }
+.steps li.current { opacity: 1; text-decoration: underline; }
+button.primary, label.primary { display: inline-block; font-size: 1.25rem; padding: 0.75rem 2rem; border-radius: 0.5rem; cursor: pointer; background: #1d4ed8; color: white; border: 0; }
+label.primary input { display: block; margin-top: 0.5rem; font-size: 0.9rem; }
+.progress span { display: block; font-size: 0.95rem; }
+.hint { font-size: 0.9rem; opacity: 0.8; }
+.restore-link { margin-top: 2rem; }
+.lead { font-size: 1.25rem; }
+.card { border: 1px solid #8886; border-radius: 0.5rem; padding: 0.75rem; margin: 0.5rem 0; }
+.card .tag { font-size: 0.8rem; background: #e0e7ff; color: #1e1b4b; padding: 0.1rem 0.4rem; border-radius: 0.25rem; }
+.help { font-size: 0.9rem; }

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Chromatic add-ons installer (draft)</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script type="module" src="./src/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>Add-ons for the ModRetro Chromatic</h1>
+      <p class="untested" data-status-label></p>
+      <p class="disclaimer" data-disclaimer></p>
+    </header>
+
+    <div id="unsupported" class="error" hidden><span data-browser-check></span></div>
+    <div id="error" class="error" role="alert" hidden></div>
+
+    <main id="app" hidden>
+      <ol class="steps" aria-label="Steps">
+        <li data-step-tab="connect">Connect</li>
+        <li data-step-tab="backup">Save my backup</li>
+        <li data-step-tab="install">Install</li>
+        <li data-step-tab="done">Done</li>
+      </ol>
+
+      <section class="screen" data-screen="connect">
+        <p class="lead" data-copy="STEP_CONNECT"></p>
+        <button class="primary" id="connect" data-copy="BTN_CONNECT"></button>
+        <div class="progress" data-progress="connect" hidden><progress max="1" value="0"></progress><span></span></div>
+        <p><a class="help" data-help></a></p>
+      </section>
+
+      <section class="screen" data-screen="backup" hidden>
+        <p class="lead" data-copy="STEP_BACKUP"></p>
+        <button class="primary" id="backup" data-copy="BTN_BACKUP"></button>
+        <div class="progress" data-progress="backup" hidden><progress max="1" value="0"></progress><span></span></div>
+        <p data-backup-status></p>
+        <div id="confirm-saved" hidden>
+          <h3>Confirm your backup saved</h3>
+          <p>Your backup file was just saved, usually to your Downloads folder. Please pick that file here. This proves it really reached your computer, so you never rely on a backup that wasn't saved.</p>
+          <label class="primary file">Choose my backup file<input id="confirm-file" type="file" accept=".chromatic" /></label>
+          <p data-confirm-status></p>
+        </div>
+        <p><a class="help" data-help></a></p>
+      </section>
+
+      <section class="screen" data-screen="install" hidden>
+        <p class="lead" data-copy="STEP_INSTALL"></p>
+        <div id="cards"></div>
+        <ul id="checks" class="checks"></ul>
+        <details>
+          <summary>More info</summary>
+          <ul id="risk-details"></ul>
+          <p data-does-not-do></p>
+        </details>
+        <button class="primary" id="install" data-copy="BTN_INSTALL" disabled></button>
+        <p class="hint" data-install-hint></p>
+        <div class="progress" data-progress="install" hidden><progress max="1" value="0"></progress><span></span></div>
+        <p data-install-status></p>
+        <p><a class="help" data-help></a></p>
+      </section>
+
+      <section class="screen" data-screen="done" hidden>
+        <p class="lead" data-copy="STEP_DONE"></p>
+        <p><a href="#restore" data-undo></a></p>
+        <p><a class="help" data-help></a></p>
+      </section>
+
+      <section class="screen" data-screen="restore" hidden>
+        <h2>Restore</h2>
+        <p>This puts your backup back on your Chromatic. Use the backup file you saved from this same Chromatic.</p>
+        <p id="restore-connect-note" hidden>First connect your Chromatic: <button id="restore-connect" data-copy="BTN_CONNECT"></button></p>
+        <label class="file">My backup file <input id="restore-file" type="file" accept=".chromatic" /></label>
+        <button class="primary" id="restore-btn" disabled>Restore</button>
+        <div class="progress" data-progress="restore" hidden><progress max="1" value="0"></progress><span></span></div>
+        <p data-restore-status></p>
+        <p><a class="help" data-help></a></p>
+      </section>
+
+      <p class="restore-link"><a href="#restore" data-undo></a></p>
+
+      <details id="tech">
+        <summary>Technical details</summary>
+        <dl>
+          <dt>USB port</dt><dd>ESP32 serial 0x374E:0x0101 only. 0x33AA:0x0120 is the Chromatic's JTAG bridge (not the ESP32 console) and is filtered out.</dd>
+          <dt>Serial</dt><dd>115200 baud only, no baud change. ClassicReset with DTR and RTS always set together. Stub loaded before MD5.</dd>
+          <dt>Chip</dt><dd data-chip>not connected</dd>
+          <dt>Flash size</dt><dd data-flash>-</dd>
+          <dt>MAC</dt><dd data-mac>-</dd>
+          <dt>Backup checks</dt><dd><ul id="verify-list"></ul></dd>
+          <dt>Partition table (current)</dt><dd><pre id="partitions">-</pre></dd>
+          <dt>Firmware to install</dt><dd id="manifest">-</dd>
+          <dt>Writes</dt><dd>Install: only 0x8000 (partition table) and 0x10000 (app, at most 0x1F0000), each SHA-256 checked against manifest.json first and MD5 checked on the chip after. Restore: the full 4 MB at 0x0. Never 0x1000, no full-chip erase, no eFuse writes.</dd>
+          <dt>Advanced</dt><dd><button id="export-raw" disabled>Export raw .bin (esptool-compatible)</button> Saves the 4 MB image from the last backup without the header. It can't be restored on this page.</dd>
+        </dl>
+        <pre id="log"></pre>
+      </details>
+    </main>
+
+    <footer>
+      <p class="disclaimer" data-disclaimer></p>
+      <p>Installer code: GPL-3.0-only. Uses <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.5.7 (Apache-2.0, see <a href="./vendor/esptool-js-0.5.7/LICENSE">LICENSE</a> and <a href="./vendor/esptool-js-0.5.7/NOTICE.md">NOTICE</a>).</p>
+    </footer>
+  </body>
+</html>
