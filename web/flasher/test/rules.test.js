@@ -188,7 +188,7 @@ test("help link is hidden while HELP_URL is empty, shown once set", () => {
 });
 
 test("install feature line: exact text, bold rendered as parts", () => {
-  assert.equal(copy.FEATURES_LINE, "**Wi-Fi** lets your Chromatic join your home network, which it uses to talk to Grok. **Bluetooth** lets you pair your phone or computer, using a code shown on the Chromatic's screen, so you can set up Wi-Fi and send messages without cables.");
+  assert.equal(copy.FEATURES_LINE, "**Wi-Fi** lets your Chromatic join your home network, which it uses to talk to Grok (Advanced setup). **Bluetooth** lets you pair your phone or computer, using a code shown on the Chromatic's screen, so you can set up Wi-Fi and send messages without cables.");
   const parts = copy.boldParts(copy.FEATURES_LINE);
   assert.deepEqual(parts.filter((p) => p.strong).map((p) => p.text), ["Wi-Fi", "Bluetooth"]);
   assert.ok(parts.every((p) => !p.text.includes("*")));

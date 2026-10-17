@@ -60,7 +60,7 @@ export function helpLink(url = HELP_URL) {
 }
 
 /** Install step, plain-language feature line. **x** is rendered as <strong>x</strong>. */
-export const FEATURES_LINE = "**Wi-Fi** lets your Chromatic join your home network, which it uses to talk to Grok. **Bluetooth** lets you pair your phone or computer, using a code shown on the Chromatic's screen, so you can set up Wi-Fi and send messages without cables.";
+export const FEATURES_LINE = "**Wi-Fi** lets your Chromatic join your home network, which it uses to talk to Grok (Advanced setup). **Bluetooth** lets you pair your phone or computer, using a code shown on the Chromatic's screen, so you can set up Wi-Fi and send messages without cables.";
 
 /** Split "**bold** text" into [{text, strong}] parts, so the page can build DOM nodes without innerHTML. */
 export function boldParts(s) {
