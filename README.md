@@ -8,7 +8,7 @@ This is a modified version of the ModRetro Chromatic MCU firmware, distributed u
 - Base commit: `63ed3b62b16768ad2415c9e3b865b438ca40fcc6` ("Publish v4.6")
 - License: [LICENSE](LICENSE). See [NOTICE](NOTICE).
 
-The Chromatic MCU is an ESP32-U4WDH with 4 MB of flash and no PSRAM. The screen is 160×144. The ESP32 is the composite USB serial port used for flashing and the `mcu>` console. GPIO9 and GPIO10 are the FPGA UART, so the flash stays in DIO mode.
+The Chromatic MCU is an ESP32-U4WDH with 4 MB of flash and no PSRAM. The screen is 160×144. The ESP32 is not on USB directly. The FPGA's composite USB device includes a CDC serial port (USB VID:PID `0x374E:0x0101`, "Chromatic - Player 01") that is bridged to ESP32 UART0, and that port is used for flashing and the `mcu>` console. GPIO9 and GPIO10 are the FPGA UART, so the flash stays in DIO mode.
 
 App version: `0.14.0-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
 
@@ -35,12 +35,20 @@ Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are no
 
 Do this before the first custom flash. The backup is the exact image you can write back later.
 
-Connect the Chromatic over USB and find the port (`/dev/cu.usbmodem…` on macOS, `/dev/ttyACM0` on Linux). From an ESP-IDF v5.3 shell:
+Connect the Chromatic over USB and find the port (`/dev/cu.usbmodem…` on macOS, `/dev/ttyACM0` on Linux, `COMx` on Windows). The right one is USB VID:PID `0x374E:0x0101` ("Chromatic - Player 01"). On Linux, `lsusb` shows `374e:0101` and `ls -l /dev/serial/by-id/` maps it to a `ttyACM` node. On macOS, System Information → USB lists it. On Windows, Device Manager shows `VID_374E&PID_0101` under the port's Hardware Ids. The other USB device on the same cable (`0x33AA:0x0120`) is the FPGA's JTAG bridge, not the ESP32.
+
+### Serial speed: 115200 only
+
+That port is the FPGA's USB-to-UART bridge, and it only runs at **115200 baud**. Every `esptool.py` command in this README passes `-b 115200`. Do not use `-b 460800` or any faster rate, and note that `idf.py` defaults to 460800 for flashing unless you pass `-b 115200`. The bridge also delivers the ESP32 ROM boot output in small pieces, so if esptool fails to sync ("Failed to connect" / "Invalid head of packet"), unplug, reconnect, and retry at 115200 rather than raising the speed. Background: the Shiny Relay installer teardown found the bridge runs 115200 only and needed read-path fixes in esptool-js for the fragmented boot banner.
+
+From an ESP-IDF v5.3 shell:
 
 ```bash
 . $HOME/esp-idf/export.sh
-esptool.py --chip esp32 -p "$PORT" -b 460800 read_flash 0x0 0x400000 chromatic-stock-4mb.bin
+esptool.py --chip esp32 -p "$PORT" -b 115200 read_flash 0x0 0x400000 chromatic-stock-4mb.bin
 ```
+
+At 115200 a full 4 MB read takes several minutes (roughly 6). Let it finish, keep the Chromatic powered and charged, and do not unplug it mid-read.
 
 Keep that 4 MB file. It is the full flash, not the smaller merged image that upstream sometimes attaches to a release. Do not write `merged-flash_*.bin` at a guessed offset.
 
@@ -75,30 +83,73 @@ alias get_idf='. $HOME/esp-idf/export.sh'
 
 ## 3. Build and flash
 
+Back up first (section 1). Then build:
+
 ```bash
 . $HOME/esp-idf/export.sh
 cd ~/Projects/chromatic-grok
 idf.py set-target esp32
 idf.py build
-idf.py -p "$PORT" flash monitor
+```
+
+`idf.py set-target esp32` once is enough. The project name is `chromatic_grok`, so the app binary is `build/chromatic_grok.bin`, not `mcu_fw.bin`. The partition table binary is `build/partition_table/partition-table.bin`.
+
+### The first flash must write the partition table too
+
+Stock firmware uses ESP-IDF's default single-app partition table: NVS at `0x9000`, phy_init at `0xf000`, and a **1 MB** factory app at `0x10000`. (Upstream oss-chromatic-console-mcu has no `partitions.csv` and does not set a partition table option, so it gets that default.) This firmware's `partitions.csv` keeps NVS and phy_init in the same places but makes the factory slot **`0x1F0000`** (about 2 MB), because Wi-Fi and BLE do not fit in 1 MB.
+
+So the **first** flash of this firmware onto a stock Chromatic must write **both**:
+
+- the custom partition table at `0x8000`, and
+- the app at `0x10000`.
+
+Writing only the app at `0x10000` onto a stock device does not work: the image is larger than the stock 1 MB slot, and the stock table at `0x8000` still describes that 1 MB slot, so the app overflows it and will not boot.
+
+Recommended command (writes exactly `0x8000` and `0x10000`, nothing else):
+
+```bash
+. $HOME/esp-idf/export.sh
+esptool.py --chip esp32 -p "$PORT" -b 115200 write_flash \
+  0x8000 build/partition_table/partition-table.bin \
+  0x10000 build/chromatic_grok.bin
+```
+
+Then open the console (115200 is also the monitor speed):
+
+```bash
+idf.py -p "$PORT" monitor
 ```
 
 Leave the monitor with `Ctrl-]`.
 
-`idf.py set-target esp32` once is enough. The project name is `chromatic_grok`, so the app binary is not named `mcu_fw`.
+### What `idf.py flash` writes
 
-The partition table keeps NVS at `0x9000` / 24 KB, the same slot as the stock single-app table. The factory app slot grows to `0x1F0000` (about 2 MB) so Wi-Fi and BLE fit. Flashing the new partition table is expected the first time. That flash does not move NVS. Menu settings can survive an app reflash. A full chip erase will not.
+`idf.py -p "$PORT" flash` writes three regions for this project (no OTA data, since the table has no OTA slots):
+
+| Offset | File | Written by `idf.py flash` | Written by the esptool command above |
+|---|---|---|---|
+| `0x1000` | `build/bootloader/bootloader.bin` | yes | no |
+| `0x8000` | `build/partition_table/partition-table.bin` | yes | yes |
+| `0x10000` | `build/chromatic_grok.bin` | yes | yes |
+
+The esptool command above is preferred. Rewriting the bootloader at `0x1000` is not needed (the stock bootloader reads the new table and boots the new app), and a bad or interrupted bootloader write is the riskiest part of a flash. Also, `idf.py` flashes at 460800 by default, which this port does not support. If you use `idf.py flash` anyway, pass the speed explicitly: `idf.py -p "$PORT" -b 115200 flash monitor`. That still rewrites `0x1000`.
+
+Neither command touches NVS (`0x9000`) or phy_init (`0xf000`), so menu settings survive. A full chip erase (`idf.py erase-flash`) will not. Later app-only updates can write just `0x10000 build/chromatic_grok.bin` once the custom table is on the device, but writing both again is harmless.
 
 If `idf.py` rejects a name in `sdkconfig.defaults`, fix that symbol from the v5.3 Kconfig instead of guessing. Wi-Fi and BLE together are tight on this chip: buffers are reduced, AMPDU is off, and HTTPS is off.
 
 ## 4. Restore stock firmware
 
-Write the backup back:
+Write the full 4 MB backup back at `0x0`:
 
 ```bash
 . $HOME/esp-idf/export.sh
-esptool.py --chip esp32 -p "$PORT" -b 460800 write_flash 0x0 chromatic-stock-4mb.bin
+esptool.py --chip esp32 -p "$PORT" -b 115200 write_flash 0x0 chromatic-stock-4mb.bin
 ```
+
+Use 115200 here too; it is the only speed the port supports. Writing 4 MB at that speed takes several minutes. Keep the Chromatic powered and connected until esptool reports the hash was verified.
+
+Restore the whole image at `0x0`, not just the stock app. This firmware replaced the stock partition table at `0x8000`, so writing only a stock app at `0x10000` would leave this firmware's `0x1F0000` table on the device, which is not stock. The full backup puts back the bootloader, the stock 1 MB table, NVS and the stock app in one write.
 
 The official MR Updater can also return a Chromatic to current stock firmware. Downloads: https://modretro.com/pages/downloads. That updater installs ModRetro's latest stock image. It does not restore your backup file.
 
@@ -251,7 +302,7 @@ components/grok/     Wi-Fi, BLE, HTTP, screen overlay, commands
 companion/proxy.py   LAN proxy. Holds XAI_API_KEY.
 companion/chromatic_grok.py
 docs/PROTOCOL.md
-partitions.csv       NVS stays at 0x9000. Factory app is larger.
+partitions.csv       NVS stays at 0x9000. Factory app is 0x1F0000 (stock: 1 MB).
 ```
 
 Stock behavior outside that link is intentionally untouched: FPGA UART, button edges, the settings namespace, and the menu bitmaps.
