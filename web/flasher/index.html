@@ -29,11 +29,12 @@
         <p class="lead" data-copy="STEP_CONNECT"></p>
         <button class="primary" id="connect" data-copy="BTN_CONNECT"></button>
         <div class="progress" data-progress="connect" hidden><progress max="1" value="0"></progress><span></span></div>
-        <p><a class="help" data-help></a></p>
+        <p hidden><a class="help" data-help hidden></a></p>
       </section>
 
       <section class="screen" data-screen="backup" hidden>
         <p class="lead" data-copy="STEP_BACKUP"></p>
+        <p data-copy="STEP_BACKUP_NOTE"></p>
         <button class="primary" id="backup" data-copy="BTN_BACKUP"></button>
         <div class="progress" data-progress="backup" hidden><progress max="1" value="0"></progress><span></span></div>
         <p data-backup-status></p>
@@ -43,11 +44,12 @@
           <label class="primary file">Choose my backup file<input id="confirm-file" type="file" accept=".chromatic" /></label>
           <p data-confirm-status></p>
         </div>
-        <p><a class="help" data-help></a></p>
+        <p hidden><a class="help" data-help hidden></a></p>
       </section>
 
       <section class="screen" data-screen="install" hidden>
         <p class="lead" data-copy="STEP_INSTALL"></p>
+        <p data-features></p>
         <div id="cards"></div>
         <ul id="checks" class="checks"></ul>
         <details>
@@ -59,13 +61,13 @@
         <p class="hint" data-install-hint></p>
         <div class="progress" data-progress="install" hidden><progress max="1" value="0"></progress><span></span></div>
         <p data-install-status></p>
-        <p><a class="help" data-help></a></p>
+        <p hidden><a class="help" data-help hidden></a></p>
       </section>
 
       <section class="screen" data-screen="done" hidden>
         <p class="lead" data-copy="STEP_DONE"></p>
         <p><a href="#restore" data-undo></a></p>
-        <p><a class="help" data-help></a></p>
+        <p hidden><a class="help" data-help hidden></a></p>
       </section>
 
       <section class="screen" data-screen="restore" hidden>
@@ -76,7 +78,7 @@
         <button class="primary" id="restore-btn" disabled>Restore</button>
         <div class="progress" data-progress="restore" hidden><progress max="1" value="0"></progress><span></span></div>
         <p data-restore-status></p>
-        <p><a class="help" data-help></a></p>
+        <p hidden><a class="help" data-help hidden></a></p>
       </section>
 
       <p class="restore-link"><a href="#restore" data-undo></a></p>
@@ -92,7 +94,7 @@
           <dt>Backup checks</dt><dd><ul id="verify-list"></ul></dd>
           <dt>Partition table (current)</dt><dd><pre id="partitions">-</pre></dd>
           <dt>Firmware to install</dt><dd id="manifest">-</dd>
-          <dt>Writes</dt><dd>Install: only 0x8000 (partition table) and 0x10000 (app, at most 0x1F0000), each SHA-256 checked against manifest.json first and MD5 checked on the chip after. Restore: the full 4 MB at 0x0. Never 0x1000, no full-chip erase, no eFuse writes.</dd>
+          <dt>Writes</dt><dd>Install: only 0x8000 (partition table) and 0x10000 (app, at most 0x1F0000), each SHA-256 checked against the build manifest first and MD5 checked on the chip after. Restore: the full 4 MB at 0x0. Never 0x1000, no full-chip erase, no eFuse writes.</dd>
           <dt>Advanced</dt><dd><button id="export-raw" disabled>Export raw .bin (esptool-compatible)</button> Saves the 4 MB image from the last backup without the header. It can't be restored on this page.</dd>
         </dl>
         <pre id="log"></pre>

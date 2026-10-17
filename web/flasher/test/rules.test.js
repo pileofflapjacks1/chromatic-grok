@@ -139,13 +139,19 @@ test("errors use Zed's copy word for word", () => {
 
 test("page copy: exact checks and status label", () => {
   assert.deepEqual(copy.CHECKS, [
-    "My Chromatic is charged and plugged in, and other apps are closed.",
-    "This is unofficial, and I'm doing it at my own risk.",
-    "I'll keep my backup private, since it can include my Wi-Fi password.",
+    "I understand this is an unofficial add-on, and something could go wrong.",
+    "I'll keep my Chromatic plugged in and this tab open until it's done.",
+    "I'll keep my backup file private (it can include my Wi-Fi password).",
   ]);
   assert.match(copy.STATUS_LABEL, /^Untested on hardware\./);
   assert.equal(copy.RISK_DETAILS.length, 10);
-  assert.ok(copy.RISK_DETAILS.includes("I'll keep both backup files together (the .bin and its .json) and only restore them to the same Chromatic they came from."));
+  assert.ok(copy.RISK_DETAILS.includes("I'll keep my one backup file (it ends in .chromatic) somewhere safe, and I understand it can only be restored to the same Chromatic it came from."));
+  assert.match(copy.STEP_BACKUP_NOTE, /one \.chromatic file, named for you\.$/);
+  assert.match(copy.RISK_DETAILS[2], /^My backup file can include/);
+  // No user-facing copy mentions .bin or .json (the Advanced raw export note lives in index.html).
+  for (const [k, v] of Object.entries(copy)) {
+    for (const text of [v].flat()) if (typeof text === "string") assert.doesNotMatch(text, /\.bin\b|\.json\b/, k);
+  }
 });
 
 test("reset steps: download mode only on DTR=1 RTS=0, both lines every step", async () => {
@@ -171,4 +177,20 @@ test("time left text", () => {
   assert.equal(timeLeft(90, 100, 90000), "About 10 seconds left");
   assert.equal(timeLeft(99, 100, 99000), "A few seconds left");
   assert.equal(timeLeft(100, 100, 1), "Almost done…");
+});
+
+test("help link is hidden while HELP_URL is empty, shown once set", () => {
+  assert.equal(copy.HELP_URL, "");
+  assert.deepEqual(copy.helpLink(), { show: false, href: "", text: "Stuck? Ask Carty G" });
+  assert.equal(copy.helpLink("   ").show, false);
+  assert.equal(copy.helpLink(undefined).show, false);
+  assert.deepEqual(copy.helpLink("https://example.com/carty"), { show: true, href: "https://example.com/carty", text: "Stuck? Ask Carty G" });
+});
+
+test("install feature line: exact text, bold rendered as parts", () => {
+  assert.equal(copy.FEATURES_LINE, "**Wi-Fi** lets your Chromatic join your home network, which it uses to talk to Grok. **Bluetooth** lets you pair your phone or computer, using a code shown on the Chromatic's screen, so you can set up Wi-Fi and send messages without cables.");
+  const parts = copy.boldParts(copy.FEATURES_LINE);
+  assert.deepEqual(parts.filter((p) => p.strong).map((p) => p.text), ["Wi-Fi", "Bluetooth"]);
+  assert.ok(parts.every((p) => !p.text.includes("*")));
+  assert.equal(parts.map((p) => p.text).join(""), copy.FEATURES_LINE.replaceAll("**", ""));
 });

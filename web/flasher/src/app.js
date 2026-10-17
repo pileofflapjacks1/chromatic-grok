@@ -41,9 +41,22 @@ function fillCopy() {
   $$("[data-browser-check]").forEach((el) => (el.textContent = copy.BROWSER_CHECK));
   $$("[data-copy]").forEach((el) => (el.textContent = copy[el.dataset.copy]));
   $$("[data-undo]").forEach((el) => (el.textContent = copy.UNDO_LINK));
+  const help = copy.helpLink();
   $$("[data-help]").forEach((el) => {
-    el.textContent = copy.HELP_TEXT;
-    el.href = copy.HELP_HREF;
+    el.textContent = help.text;
+    el.href = help.href;
+    el.hidden = !help.show;
+    if (el.parentElement) el.parentElement.hidden = !help.show;
+  });
+  $$("[data-features]").forEach((el) => {
+    el.textContent = "";
+    for (const part of copy.boldParts(copy.FEATURES_LINE)) {
+      if (part.strong) {
+        const b = document.createElement("strong");
+        b.textContent = part.text;
+        el.append(b);
+      } else el.append(part.text);
+    }
   });
   $$("[data-does-not-do]").forEach((el) => (el.textContent = copy.DOES_NOT_DO));
   renderDisclaimer();
@@ -323,10 +336,10 @@ async function loadManifest() {
     }
     state.manifest = m;
     state.firmware = files;
-    $("#manifest").textContent = m.files.map((f) => `${f.name} @0x${f.offset.toString(16)} ${f.size} B sha256 ${f.sha256}`).join("\n");
+    $("#manifest").textContent = m.files.map((f) => `@0x${f.offset.toString(16)} ${f.size} B sha256 ${f.sha256}`).join("\n");
   } catch (e) {
     log(`No installable build: ${e.message}`);
-    $("#manifest").textContent = `No build available (${e.message}).`;
+    $("#manifest").textContent = "No build available yet (details in the log).";
   }
   renderCards();
   renderDisclaimer();
@@ -359,7 +372,7 @@ function renderCards() {
     const dl = document.createElement("a");
     dl.href = `./firmware/${f.name}`;
     dl.download = f.name;
-    dl.textContent = `Download ${f.name}`;
+    dl.textContent = `Download install file ${m.files.indexOf(f) + 1} of ${m.files.length}`;
     const tag = document.createElement("span");
     tag.className = "untested";
     tag.textContent = copy.STATUS_LABEL;
