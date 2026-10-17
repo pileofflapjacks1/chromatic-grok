@@ -2,6 +2,7 @@
 
 ### Added
 - Browser companion in `web/`. It asks xAI from the server and sends `grok show` over USB. A local, editable Grok Bot list picks the voice for the next question.
+- Draft browser installer in `web/flasher/` (Web Serial, esptool-js 0.5.7): backup, install to 0x8000/0x10000 only, and restore. Untested on hardware, not deployed.
 
 ## 0.14.0-grok
 
