@@ -7,6 +7,7 @@ Modified ModRetro Chromatic MCU firmware. Upstream is `upstream` (https://github
 - Do not `idf.py erase-flash`. NVS must stay at `0x9000`.
 - Grok code is `components/grok/`. Proxy mode: the device speaks `http://` to a LAN proxy and the xAI key stays in `XAI_API_KEY` on the computer. Direct mode (`grok mode direct`): HTTPS to api.x.ai with BLE stopped; the key is in NVS `grokcfg/xaikey`. Never print, log or echo the key.
 - RAM is tight (direct-mode low point ~10 KB on hardware). Do not add static DRAM or long-lived heap without measuring.
+- Wireless updates (`grok update`, `components/grok/grok_update.c`) accept only images signed for the key in `CONFIG_SECURE_BOOT_VERIFICATION_KEY`. Never put a private signing key on the build box or in git; only public keys go in `keys/`. Never enable secure boot, flash encryption, or anything that burns eFuses, and never reflash the bootloader at `0x1000`. A USB app reflash writes `0x10000` and `ota_data_initial.bin` at `0x3F0000` together.
 - Light sleep is skipped while `Grok_WantsRadioAwake()` is true. Default is awake.
 - Host checks: `sh tests/run_host.sh`. That is not an IDF build and not a hardware test.
 - `web/` is the browser companion (TanStack Start). It is not part of the ESP-IDF build. `cd web && npm test && npm run build`.
