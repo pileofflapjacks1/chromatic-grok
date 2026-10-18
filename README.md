@@ -359,7 +359,7 @@ rem each release: sign the built app, then upload chromatic_grok.signed.bin as t
 espsecure.py sign_data --version 1 --keyfile chromatic_signing_key.pem --output chromatic_grok.signed.bin chromatic_grok.bin
 ```
 
-The public PEM becomes `keys/signature_verification_key.bin` via `tools/pubkey_pem_to_bin.py`. The tree currently builds with a **TEST** key (`keys/TEST_*`); `grok update status` prints "TEST KEY" for such builds. A device trusts only the key built into the firmware it runs, so the first build with the release key must be flashed over USB.
+The firmware trusts exactly one key: Joe's release key, `keys/joe_signing.pub.pem` (embedded as `keys/joe_signature_verification_key.bin`, made with `tools/pubkey_pem_to_bin.py`). `grok update status` prints its id `13b86339c36256da` (start of the SHA-256 of the DER public key) and "(Joe release key)". A device trusts only the key built into the firmware it runs, so a build with a new key must be flashed over USB once.
 
 ## Known limitations
 
@@ -386,7 +386,7 @@ companion/proxy.py   LAN proxy. Holds XAI_API_KEY.
 companion/chromatic_grok.py
 docs/PROTOCOL.md
 docs/REINSTALL.md    USB reinstall, backup restore, back to stock, signing-key backup
-keys/                Public verification keys only (TEST key until the release key is added)
+keys/                Joe's release public key only (PEM + raw 64-byte form)
 tools/pubkey_pem_to_bin.py  Public PEM -> raw key for CONFIG_SECURE_BOOT_VERIFICATION_KEY
 partitions.csv       NVS stays at 0x9000. Two OTA app slots of 0x1F0000 (stock: one 1 MB factory app).
 ```

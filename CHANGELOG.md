@@ -9,7 +9,7 @@
 - `grok update [url]`: wireless update into the inactive slot over HTTPS (default: latest GitHub release asset `chromatic_grok.signed.bin`). Images must carry an ECDSA P-256 signature (`espsecure.py sign_data --version 1`) for the public key built into the firmware; ESP-IDF "signed apps without secure boot", app-side check only, stock bootloader and eFuses untouched.
 - App-level rollback: a new image runs as a trial and is confirmed once Wi-Fi and the console are up; otherwise it switches back after 90 s or on the 3rd unconfirmed boot. `grok update status`, `grok update rollback`, `grok update hold` (test hook).
 - `docs/REINSTALL.md`: USB reinstall, backup restore, back to ModRetro firmware, signing-key backup.
-- `keys/` holds public keys only; the tree builds with a TEST key until the release key is added. `tools/pubkey_pem_to_bin.py`.
+- `keys/joe_signing.pub.pem`: the only trusted update key (Joe's release key, id `13b86339c36256da`). Public keys only in git. `tools/pubkey_pem_to_bin.py` converts a public PEM to the raw form the build embeds.
 - Browser companion in `web/`. It asks xAI from the server and sends `grok show` over USB. A local, editable Grok Bot list picks the voice for the next question.
 
 ### Changed

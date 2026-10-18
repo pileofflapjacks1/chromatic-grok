@@ -60,8 +60,15 @@
 #define GROK_UPD_LABEL_MAX 16
 #define GROK_UPD_LAST_MAX 96
 
-/* SHA-256 of keys/TEST_signature_verification_key.bin, first 8 bytes. */
-static const uint8_t kTestKeyId[8] = {0xf1, 0xa2, 0x44, 0x95, 0x77, 0xee, 0x6f, 0xfd};
+/* Key id = SHA-256 of the DER SubjectPublicKeyInfo, the same number as
+ * `openssl pkey -pubin -in keys/joe_signing.pub.pem -outform DER | sha256sum`.
+ * First 8 bytes of Joe's release key (keys/joe_signing.pub.pem). */
+static const uint8_t kReleaseKeyId[8] = {0x13, 0xb8, 0x63, 0x39, 0xc3, 0x62, 0x56, 0xda};
+/* DER prefix of an uncompressed P-256 SubjectPublicKeyInfo, up to the 0x04. */
+static const uint8_t kP256SpkiPrefix[27] = {
+    0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06,
+    0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04,
+};
 
 /* The raw 64-byte X||Y key that bootloader_support embeds from
  * CONFIG_SECURE_BOOT_VERIFICATION_KEY. */
@@ -302,18 +309,24 @@ void grok_update_tick(void)
 
 static void key_id(uint8_t out[8])
 {
+    mbedtls_sha256_context ctx;
     uint8_t digest[32];
 
-    mbedtls_sha256(s_verify_key, 64, digest, 0);
+    mbedtls_sha256_init(&ctx);
+    mbedtls_sha256_starts(&ctx, 0);
+    mbedtls_sha256_update(&ctx, kP256SpkiPrefix, sizeof(kP256SpkiPrefix));
+    mbedtls_sha256_update(&ctx, s_verify_key, 64);
+    mbedtls_sha256_finish(&ctx, digest);
+    mbedtls_sha256_free(&ctx);
     memcpy(out, digest, 8);
 }
 
-static bool key_is_test(void)
+static bool key_is_release(void)
 {
     uint8_t id[8];
 
     key_id(id);
-    return memcmp(id, kTestKeyId, sizeof(id)) == 0;
+    return memcmp(id, kReleaseKeyId, sizeof(id)) == 0;
 }
 
 void grok_update_status(void)
@@ -349,8 +362,8 @@ void grok_update_status(void)
     upd_get_str("last", text, sizeof(text));
     printf("update: last %s\n", text[0] ? text : "-");
     key_id(id);
-    printf("update: signing key %02x%02x%02x%02x%02x%02x%02x%02x%s\n", id[0], id[1], id[2], id[3], id[4], id[5],
-           id[6], id[7], key_is_test() ? " TEST KEY (not for release)" : "");
+    printf("update: signing key %02x%02x%02x%02x%02x%02x%02x%02x %s\n", id[0], id[1], id[2], id[3], id[4], id[5],
+           id[6], id[7], key_is_release() ? "(Joe release key)" : "(UNKNOWN KEY, not the release key)");
     if (!s_trial && upd_get_u8("hold"))
     {
         printf("update: test hold armed for the next update\n");
@@ -436,9 +449,9 @@ bool grok_update_run(const char *url)
         return false;
     }
     printf("update: %s -> %s from %s\n", running->label, target->label, url);
-    if (key_is_test())
+    if (!key_is_release())
     {
-        printf("update: this build trusts the TEST key only\n");
+        printf("update: warning: this build does not trust the release key\n");
     }
     grok_mem_print("before update");
 

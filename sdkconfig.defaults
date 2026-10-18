@@ -90,8 +90,9 @@ CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME=y
 # CONFIG_SECURE_SIGNED_ON_BOOT_NO_SECURE_BOOT is not set
 CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
 # CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is not set
-# TEST KEY. Its private half never leaves the build box and is not in git.
-# Replace with keys/signature_verification_key.bin (Joe's key) for release.
-CONFIG_SECURE_BOOT_VERIFICATION_KEY="keys/TEST_signature_verification_key.bin"
+# Joe's release key: raw X||Y of keys/joe_signing.pub.pem (made with
+# tools/pubkey_pem_to_bin.py). The private key exists only on Joe's PC.
+# Key id (SHA-256 of the DER public key) 13b86339c36256da...
+CONFIG_SECURE_BOOT_VERIFICATION_KEY="keys/joe_signature_verification_key.bin"
 # Rollback is done in the app (grok_update.c); the stock bootloader was not
 # built with CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE.

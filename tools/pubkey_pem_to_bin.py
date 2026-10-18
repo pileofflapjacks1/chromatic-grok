@@ -26,7 +26,8 @@ def main() -> int:
     nums = key.public_numbers()
     raw = nums.x.to_bytes(32, "big") + nums.y.to_bytes(32, "big")
     open(sys.argv[2], "wb").write(raw)
-    print("wrote", sys.argv[2], "key id", hashlib.sha256(raw).hexdigest()[:16])
+    der = key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    print("wrote", sys.argv[2], "key id (sha256 of DER)", hashlib.sha256(der).hexdigest())
     return 0
 
 

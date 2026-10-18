@@ -3,19 +3,25 @@
 `grok update` accepts an image only if its ECDSA P-256 signature block
 (`espsecure.py sign_data --version 1`) verifies against the 64-byte raw
 public key embedded at build time (`CONFIG_SECURE_BOOT_VERIFICATION_KEY` in
-`sdkconfig.defaults`).
+`sdkconfig.defaults`). The firmware trusts exactly one key.
 
 | File | What |
 |---|---|
-| `TEST_signature_verification_key.bin` | **TEST KEY.** Raw X‖Y. The private half exists only on the build box, outside git. Images signed with it are test images. Not for release. |
-| `TEST_signature_verification_key.pub.pem` | Same TEST key as PEM, for `espsecure.py verify_signature`. |
-| `signature_verification_key.bin` | Joe's release key (added when Joe sends his public PEM). |
+| `joe_signing.pub.pem` | Joe's release public key (ECDSA P-256). SHA-256 of its DER form: `13b86339c36256dab861eb69ab39ef3e6f0ba973162c5154d20f170fc9587f80`. |
+| `joe_signature_verification_key.bin` | The same key as raw X‖Y (64 bytes), the file the build embeds. Made with `tools/pubkey_pem_to_bin.py`. |
 
-Never commit a private key. `.gitignore` blocks `*.pem` except `*.pub.pem`.
-Back up the release private key in a password manager: without it no future
-wireless update can be signed, and every device has to be reflashed over USB
-with a new public key.
+`grok update status` prints the first 16 hex digits of that DER hash
+(`13b86339c36256da`) and "(Joe release key)".
 
-Converting a pasted public PEM to the raw file:
+The private key (`chromatic_signing_key.pem`) exists only on Joe's PC. It is
+never on the build machine, in git, or in chat. Back it up in a password
+manager: without it no future wireless update can be signed, and every
+device then needs a USB flash of a build with a new public key.
+`.gitignore` blocks `*.pem` except `*.pub.pem`.
 
-    python tools/pubkey_pem_to_bin.py joe_pub.pem keys/signature_verification_key.bin
+Changing the key:
+
+    python tools/pubkey_pem_to_bin.py new.pub.pem keys/<name>_signature_verification_key.bin
+
+then point `CONFIG_SECURE_BOOT_VERIFICATION_KEY` at it, rebuild, and flash
+that build over USB once (a device only trusts the key in the firmware it runs).
