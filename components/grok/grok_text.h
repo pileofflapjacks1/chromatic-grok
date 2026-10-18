@@ -6,8 +6,9 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-#define GROK_TEXT_COLS 32
-#define GROK_TEXT_LINES 40
+/* Overlay wrap: 20 columns of 8 px unscii_8 on the 160 px screen; 52 lines = 4 pages of 13. */
+#define GROK_TEXT_COLS 20
+#define GROK_TEXT_LINES 52
 #define GROK_REPLY_MAX 640
 #define GROK_PROMPT_MAX 200
 

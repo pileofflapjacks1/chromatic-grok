@@ -17,8 +17,19 @@
 #include <stdio.h>
 #include <string.h>
 
+#if !LV_FONT_UNSCII_8
+#error "Grok overlay needs CONFIG_LV_FONT_UNSCII_8=y (see sdkconfig.defaults). Enable it in menuconfig or delete sdkconfig and rebuild."
+#endif
+
+/* The overlay uses LVGL's unscii_8: 1 bpp, monospace 8x8, so GROK_TEXT_COLS (20)
+ * characters fill the 160 px width exactly and the column-based wrap never clips.
+ * The OSD font (fingfai) draws lowercase in 3x3 px, where a, e and o look the same. */
 enum {
-    kPageLines = 12,
+    kPageLines = 13,
+    kLinePitch = 9,     // 8 px glyph cell + 1 px line space
+    kHeaderY = 1,
+    kBodyY = 11,
+    kFooterY = 135,
     kPaneX = 77,
     kPaneY = 46,
     kPaneStep = 12,
@@ -39,7 +50,7 @@ static lv_obj_t *s_body;
 static lv_obj_t *s_footer;
 static lv_obj_t *s_pane[3];
 static char s_header_shown[64];
-static char s_body_shown[12 * (GROK_TEXT_COLS + 2)];
+static char s_body_shown[kPageLines * (GROK_TEXT_COLS + 2)];
 static char s_pane_shown[96];
 
 static OSD_Widget_t s_widget = {
@@ -95,31 +106,35 @@ static void ensure_overlay(lv_obj_t *screen)
 
     s_header = lv_label_create(s_panel);
     lv_obj_add_style(s_header, OSD_GetStyleTextGrey(), 0);
-    lv_obj_set_pos(s_header, 2, 2);
-    lv_obj_set_width(s_header, kOSD_Width_px - 4);
+    lv_obj_set_style_text_font(s_header, &lv_font_unscii_8, 0);
+    lv_obj_set_pos(s_header, 0, kHeaderY);
+    lv_obj_set_width(s_header, kOSD_Width_px);
     lv_label_set_long_mode(s_header, LV_LABEL_LONG_CLIP);
     lv_label_set_text(s_header, "GROK");
 
     s_body = lv_label_create(s_panel);
     lv_obj_add_style(s_body, OSD_GetStyleTextWhite(), 0);
-    lv_obj_set_pos(s_body, 2, 12);
-    lv_obj_set_size(s_body, kOSD_Width_px - 4, kPageLines * 8);
+    lv_obj_set_style_text_font(s_body, &lv_font_unscii_8, 0);
+    lv_obj_set_style_text_line_space(s_body, kLinePitch - 8, 0);
+    lv_obj_set_pos(s_body, 0, kBodyY);
+    lv_obj_set_size(s_body, kOSD_Width_px, kPageLines * kLinePitch);
     lv_label_set_long_mode(s_body, LV_LABEL_LONG_CLIP);
     lv_label_set_text(s_body, "");
 
     s_footer = lv_label_create(s_panel);
     lv_obj_add_style(s_footer, OSD_GetStyleTextGrey(), 0);
-    lv_obj_set_pos(s_footer, 2, 132);
-    lv_obj_set_width(s_footer, kOSD_Width_px - 4);
+    lv_obj_set_style_text_font(s_footer, &lv_font_unscii_8, 0);
+    lv_obj_set_pos(s_footer, 0, kFooterY);
+    lv_obj_set_width(s_footer, kOSD_Width_px);
     lv_label_set_long_mode(s_footer, LV_LABEL_LONG_CLIP);
-    lv_label_set_text(s_footer, "A retry  B back  U/D page");
+    lv_label_set_text(s_footer, "A retry B back U/D");
 }
 
 static void render(lv_obj_t *screen)
 {
     static char view[GROK_REPLY_MAX + 1];
     static char lines[GROK_TEXT_LINES][GROK_TEXT_COLS + 1];
-    static char page_text[12 * (GROK_TEXT_COLS + 2)];
+    static char page_text[kPageLines * (GROK_TEXT_COLS + 2)];
     bool open;
     int page;
     size_t nlines;
@@ -127,7 +142,7 @@ static void render(lv_obj_t *screen)
     int start;
     size_t used;
     char wifi[24];
-    char header[64]; // "GROK 99/99 " + 23-char wifi text fits without truncation
+    char header[64];
 
     ensure_overlay(screen);
     if (s_panel == NULL)
@@ -179,9 +194,11 @@ static void render(lv_obj_t *screen)
 
     grok_wifi_format(wifi, sizeof(wifi));
     snprintf(header, sizeof(header), "GROK %d/%d %s", page + 1, pages, wifi);
-    if (strlen(header) > 39)
+    if (strlen(header) > GROK_TEXT_COLS)
     {
-        header[39] = '\0';
+        // A long IP does not fit after "GROK ". Keep the page count and the IP.
+        snprintf(header, sizeof(header), "%d/%d %s", page + 1, pages, wifi);
+        header[GROK_TEXT_COLS] = '\0';
     }
     if (strcmp(header, s_header_shown) != 0)
     {
