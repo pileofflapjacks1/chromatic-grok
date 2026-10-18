@@ -1,4 +1,4 @@
-## Unreleased
+## 0.15.0-grok (draft, unreleased)
 
 ### Added
 - `grok mode direct|proxy`: direct mode calls `https://api.x.ai/v1/responses` from the device (model `grok-4.7`) with BLE stopped and its controller RAM released. Proxy mode is unchanged.
@@ -8,6 +8,7 @@
 - Browser companion in `web/`. It asks xAI from the server and sends `grok show` over USB. A local, editable Grok Bot list picks the voice for the next question.
 
 ### Changed
+- App version `0.15.0-grok` (`fwversion`). Menu firmware string stays `4.6g`.
 - Grok reply overlay uses the 8x8 `unscii_8` font (20 columns) so text is legible.
 - The serial console is a small line reader instead of the linenoise REPL. Secrets typed after `grok key set`, `grok token set` and `wifi set <ssid>` echo as `*` and are never kept for Up-arrow recall. No TAB completion or multi-entry history.
 - README flashing docs: every esptool command uses `-b 115200` (the FPGA's USB CDC bridge, `0x374E:0x0101`, runs 115200 only). The first flash writes the partition table at `0x8000`, the app at `0x10000` and blank otadata at `0x3F0000` with an explicit esptool command; `idf.py flash` also rewrites the bootloader at `0x1000`. Restore writes the full 4 MB backup at `0x0`.
