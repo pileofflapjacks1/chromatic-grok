@@ -3,6 +3,7 @@
  */
 #pragma once
 
+#include "grok_pick.h"
 #include "grok_text.h"
 
 #include <stddef.h>
@@ -47,6 +48,12 @@ bool grok_store_get_xai_key(char *out, size_t out_cap);
 bool grok_store_has_xai_key(void);
 bool grok_store_set_mode(GrokMode_t mode);
 GrokMode_t grok_store_get_mode(void);
+/* Custom preset questions (0-based slot), NVS "q1".."q8". */
+bool grok_store_get_question(int idx, char *out, size_t out_cap);
+bool grok_store_set_question(int idx, const char *text);
+void grok_store_clear_question(int idx);
+/* Effective question: the custom one if set, else the built-in. */
+bool grok_question_get(int idx, char *out, size_t out_cap, bool *custom);
 
 bool grok_wifi_start(void);
 bool grok_wifi_set(const char *ssid, const char *pass);
@@ -79,3 +86,5 @@ bool grok_ui_is_open(void);
 void grok_ui_set_body(const char *text);
 void grok_ui_page(int delta);
 void grok_ui_set_page(int page);
+/* Show the preset question picker. */
+void grok_ui_open_picker(void);

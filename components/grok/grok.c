@@ -255,6 +255,72 @@ static int split_args(char *line, char **argv, int max)
     return argc;
 }
 
+bool grok_question_get(int idx, char *out, size_t out_cap, bool *custom)
+{
+    const char *builtin = grok_pick_builtin(idx);
+
+    if (custom != NULL)
+    {
+        *custom = false;
+    }
+    if ((out == NULL) || (out_cap == 0) || (builtin == NULL))
+    {
+        return false;
+    }
+    if (grok_store_get_question(idx, out, out_cap))
+    {
+        if (custom != NULL)
+        {
+            *custom = true;
+        }
+        return true;
+    }
+    snprintf(out, out_cap, "%s", builtin);
+    return true;
+}
+
+static void cmd_q(int argc, char **argv)
+{
+    char text[GROK_PROMPT_MAX + 1];
+    int idx = 0;
+
+    if ((argc == 3) && (strcmp(argv[2], "list") == 0))
+    {
+        for (int i = 0; i < GROK_PICK_COUNT; i++)
+        {
+            bool custom = false;
+
+            grok_question_get(i, text, sizeof(text), &custom);
+            printf("q%d%s %s\n", i + 1, custom ? "*" : " ", text);
+        }
+        grok_say("(* = custom, saved on the device)\n");
+        return;
+    }
+    if ((argc >= 5) && (strcmp(argv[2], "set") == 0) && grok_pick_parse_slot(argv[3], &idx))
+    {
+        if (!join_from(argc, argv, 4, text, sizeof(text)) || (text[0] == '\0'))
+        {
+            grok_say("grok: question must be 1 to 200 characters\n");
+            return;
+        }
+        grok_say(grok_store_set_question(idx, text) ? "grok: question saved\n" : "grok: could not save question\n");
+        return;
+    }
+    if ((argc == 4) && (strcmp(argv[2], "clear") == 0) && grok_pick_parse_slot(argv[3], &idx))
+    {
+        grok_store_clear_question(idx);
+        grok_say("grok: question reset to built-in\n");
+        return;
+    }
+    if ((argc == 4) && (strcmp(argv[2], "ask") == 0) && grok_pick_parse_slot(argv[3], &idx))
+    {
+        grok_question_get(idx, text, sizeof(text), NULL);
+        grok_submit_prompt(text);
+        return;
+    }
+    grok_say("grok: q list | q set <1-8> <text> | q clear <1-8> | q ask <1-8>\n");
+}
+
 static void wifi_usage(void)
 {
     grok_say("wifi: status | connect | disconnect | clear | set <ssid> <password>\n");
@@ -262,7 +328,7 @@ static void wifi_usage(void)
 
 static void grok_usage(void)
 {
-    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | ble unpair | page next|prev|N | ask <prompt> | show <text>\n");
+    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | q list|set <n> <text>|clear <n>|ask <n> | ble unpair | page next|prev|N | ask <prompt> | show <text>\n");
 }
 
 static void cmd_wifi(int argc, char **argv)
@@ -464,6 +530,11 @@ static void cmd_grok(int argc, char **argv)
             return;
         }
         grok_usage();
+        return;
+    }
+    if (strcmp(argv[1], "q") == 0)
+    {
+        cmd_q(argc, argv);
         return;
     }
     if (strcmp(argv[1], "mem") == 0)
@@ -738,7 +809,7 @@ static void register_commands(void)
     };
     const esp_console_cmd_t grok_cmd = {
         .command = "grok",
-        .help = "Grok link: status, ask, show, url, token, mode, key, mem, page, open, close, retry, sleep",
+        .help = "Grok link: status, ask, q, show, url, token, mode, key, mem, page, open, close, retry, sleep",
         .hint = NULL,
         .func = &cmd_entry,
     };

@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")/.."
 cc -std=c11 -Wall -Wextra -I components/grok \
-    tests/test_grok_text.c components/grok/grok_text.c \
+    tests/test_grok_text.c components/grok/grok_text.c components/grok/grok_pick.c \
     -o /tmp/test_grok_text
 /tmp/test_grok_text
 python3 tests/test_proxy_extract.py

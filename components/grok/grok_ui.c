@@ -38,6 +38,8 @@ enum {
 typedef struct UiState {
     char body[GROK_REPLY_MAX + 1];
     int page;
+    int pick;      /* picker selection, 0..GROK_PICK_COUNT-1 */
+    bool picker;   /* true: question picker, false: reply pages */
     bool open;
     bool dirty;
 } UiState_t;
@@ -52,6 +54,10 @@ static lv_obj_t *s_pane[3];
 static char s_header_shown[64];
 static char s_body_shown[kPageLines * (GROK_TEXT_COLS + 2)];
 static char s_pane_shown[96];
+static const char *s_footer_shown;
+
+static const char kFooterReply[] = "A retry B back U/D";
+static const char kFooterPick[] = "A ask B back U/D";
 
 static OSD_Widget_t s_widget = {
     .Name = "GrokOverlay",
@@ -127,7 +133,91 @@ static void ensure_overlay(lv_obj_t *screen)
     lv_obj_set_pos(s_footer, 0, kFooterY);
     lv_obj_set_width(s_footer, kOSD_Width_px);
     lv_label_set_long_mode(s_footer, LV_LABEL_LONG_CLIP);
-    lv_label_set_text(s_footer, "A retry B back U/D");
+    lv_label_set_text(s_footer, kFooterReply);
+    s_footer_shown = kFooterReply;
+}
+
+static void set_footer(const char *text)
+{
+    if (s_footer_shown != text)
+    {
+        lv_label_set_text(s_footer, text);
+        s_footer_shown = text;
+    }
+}
+
+static void set_header(const char *prefix, int cur, int total)
+{
+    char wifi[24];
+    char header[64];
+
+    grok_wifi_format(wifi, sizeof(wifi));
+    snprintf(header, sizeof(header), "%s%d/%d %s", prefix, cur, total, wifi);
+    if (strlen(header) > GROK_TEXT_COLS)
+    {
+        // A long IP does not fit after the prefix. Keep the count and the IP.
+        snprintf(header, sizeof(header), "%d/%d %s", cur, total, wifi);
+        header[GROK_TEXT_COLS] = '\0';
+    }
+    if (strcmp(header, s_header_shown) != 0)
+    {
+        lv_label_set_text(s_header, header);
+        snprintf(s_header_shown, sizeof(s_header_shown), "%s", header);
+    }
+}
+
+/* Picker page: 8 rows (">1*question"), a blank line, then the selected
+ * question wrapped on up to 4 lines. Built only when the state changed,
+ * because custom questions are read from NVS. Reuses render()'s scratch. */
+static void render_picker(int pick, char *view, size_t view_cap, char *lines, char *page_text, size_t page_cap)
+{
+    enum { kPreviewLines = kPageLines - GROK_PICK_COUNT - 1 };
+    size_t used = 0;
+    size_t n;
+
+    page_text[0] = '\0';
+    for (int i = 0; i < GROK_PICK_COUNT; i++)
+    {
+        bool custom = false;
+        char row[GROK_TEXT_COLS + 1];
+        size_t len;
+
+        grok_question_get(i, view, view_cap, &custom);
+        len = grok_pick_format_row(row, sizeof(row), i, view, i == pick, custom, GROK_TEXT_COLS);
+        if ((used + len + 2) >= page_cap)
+        {
+            break;
+        }
+        memcpy(page_text + used, row, len);
+        used += len;
+        page_text[used++] = '\n';
+        page_text[used] = '\0';
+    }
+    if ((used + 1) < page_cap)
+    {
+        page_text[used++] = '\n';
+        page_text[used] = '\0';
+    }
+
+    grok_question_get(pick, view, view_cap, NULL);
+    n = grok_text_wrap(view, lines, GROK_TEXT_COLS + 1, kPreviewLines, GROK_TEXT_COLS);
+    for (size_t i = 0; i < n; i++)
+    {
+        const char *line = lines + (i * (GROK_TEXT_COLS + 1));
+        size_t len = strlen(line);
+
+        if ((used + len + 2) >= page_cap)
+        {
+            break;
+        }
+        if (i > 0)
+        {
+            page_text[used++] = '\n';
+        }
+        memcpy(page_text + used, line, len);
+        used += len;
+        page_text[used] = '\0';
+    }
 }
 
 static void render(lv_obj_t *screen)
@@ -136,14 +226,14 @@ static void render(lv_obj_t *screen)
     static char lines[GROK_TEXT_LINES][GROK_TEXT_COLS + 1];
     static char page_text[kPageLines * (GROK_TEXT_COLS + 2)];
     bool open;
+    bool dirty;
+    bool picker;
+    int pick;
     int page;
     size_t nlines;
     int pages;
     int start;
     size_t used;
-    char wifi[24];
-    char header[64];
-
     ensure_overlay(screen);
     if (s_panel == NULL)
     {
@@ -151,7 +241,13 @@ static void render(lv_obj_t *screen)
     }
 
     lock();
-    snprintf(view, sizeof(view), "%s", s_ui.body);
+    picker = s_ui.picker;
+    pick = s_ui.pick;
+    dirty = s_ui.dirty;
+    if (!picker)
+    {
+        snprintf(view, sizeof(view), "%s", s_ui.body);
+    }
     page = s_ui.page;
     open = s_ui.open;
     s_ui.dirty = false;
@@ -165,6 +261,25 @@ static void render(lv_obj_t *screen)
         }
         return;
     }
+
+    if (picker)
+    {
+        set_header("ASK ", pick + 1, GROK_PICK_COUNT);
+        set_footer(kFooterPick);
+        if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))
+        {
+            render_picker(pick, view, sizeof(view), &lines[0][0], page_text, sizeof(page_text));
+            if (strcmp(page_text, s_body_shown) != 0)
+            {
+                lv_label_set_text(s_body, page_text);
+                snprintf(s_body_shown, sizeof(s_body_shown), "%s", page_text);
+            }
+        }
+        lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(s_panel);
+        return;
+    }
+    set_footer(kFooterReply);
 
     nlines = grok_text_wrap(view, &lines[0][0], GROK_TEXT_COLS + 1, GROK_TEXT_LINES, GROK_TEXT_COLS);
     pages = (int)((nlines + (kPageLines - 1)) / kPageLines);
@@ -192,19 +307,7 @@ static void render(lv_obj_t *screen)
     }
     unlock();
 
-    grok_wifi_format(wifi, sizeof(wifi));
-    snprintf(header, sizeof(header), "GROK %d/%d %s", page + 1, pages, wifi);
-    if (strlen(header) > GROK_TEXT_COLS)
-    {
-        // A long IP does not fit after "GROK ". Keep the page count and the IP.
-        snprintf(header, sizeof(header), "%d/%d %s", page + 1, pages, wifi);
-        header[GROK_TEXT_COLS] = '\0';
-    }
-    if (strcmp(header, s_header_shown) != 0)
-    {
-        lv_label_set_text(s_header, header);
-        snprintf(s_header_shown, sizeof(s_header_shown), "%s", header);
-    }
+    set_header("GROK ", page + 1, pages);
 
     used = 0;
     page_text[0] = '\0';
@@ -305,7 +408,7 @@ static OSD_Result_t item_button(const Button_t Button, const ButtonState_t State
 
     if ((Button == kButton_A) && (State == kButtonState_Pressed))
     {
-        grok_ui_open();
+        grok_ui_open_picker();
     }
     return kOSD_Result_Ok;
 }
@@ -337,10 +440,14 @@ static bool on_inputs(void)
     {
         if (Button_GetState(kButton_Start) == kButtonState_Pressed)
         {
-            grok_ui_open();
+            grok_ui_open_picker();
         }
         return false;
     }
+
+    lock();
+    bool picker = s_ui.picker;
+    unlock();
 
     for (int i = 0; i < kNumButtons; i++)
     {
@@ -349,6 +456,35 @@ static bool on_inputs(void)
 
         if (state != kButtonState_Pressed)
         {
+            continue;
+        }
+        if (picker)
+        {
+            /* Up/Down pick, A asks, B (or Start) goes back to the menu. */
+            if ((button == kButton_Up) || (button == kButton_Down))
+            {
+                lock();
+                s_ui.pick = grok_pick_step(s_ui.pick, (button == kButton_Up) ? -1 : 1);
+                s_ui.dirty = true;
+                unlock();
+            }
+            else if (button == kButton_A)
+            {
+                char text[GROK_PROMPT_MAX + 1];
+                int pick;
+
+                lock();
+                pick = s_ui.pick;
+                unlock();
+                grok_question_get(pick, text, sizeof(text), NULL);
+                grok_submit_prompt(text); /* shows "..." on the reply view */
+                return true;
+            }
+            else if ((button == kButton_B) || (button == kButton_Start))
+            {
+                grok_ui_close();
+                return true;
+            }
             continue;
         }
         if (button == kButton_Up)
@@ -363,7 +499,12 @@ static bool on_inputs(void)
         {
             grok_retry();
         }
-        else if ((button == kButton_B) || (button == kButton_Start))
+        else if (button == kButton_B)
+        {
+            grok_ui_open_picker(); /* back to the questions */
+            return true;
+        }
+        else if (button == kButton_Start)
         {
             grok_ui_close();
         }
@@ -399,6 +540,16 @@ void grok_ui_open(void)
         snprintf(s_ui.body, sizeof(s_ui.body), "No reply yet.");
         s_ui.page = 0;
     }
+    s_ui.picker = false;
+    s_ui.open = true;
+    s_ui.dirty = true;
+    unlock();
+}
+
+void grok_ui_open_picker(void)
+{
+    lock();
+    s_ui.picker = true;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
@@ -427,6 +578,7 @@ void grok_ui_set_body(const char *text)
     snprintf(s_ui.body, sizeof(s_ui.body), "%s", (text != NULL) ? text : "");
     grok_text_fold_ascii(s_ui.body);
     s_ui.page = 0;
+    s_ui.picker = false;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
@@ -436,6 +588,7 @@ void grok_ui_page(int delta)
 {
     lock();
     s_ui.page += delta;
+    s_ui.picker = false;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
@@ -449,6 +602,7 @@ void grok_ui_set_page(int page)
         page = 0;
     }
     s_ui.page = page;
+    s_ui.picker = false;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();

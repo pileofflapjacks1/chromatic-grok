@@ -4,6 +4,7 @@
 - `grok mode direct|proxy`: direct mode calls `https://api.x.ai/v1/responses` from the device (model `grok-4.7`) with BLE stopped and its controller RAM released. Proxy mode is unchanged.
 - `grok key set <key>` / `grok key clear`: xAI key in its own NVS slot (`grokcfg/xaikey`), separate from the proxy token. Stored unencrypted.
 - `grok mem`: internal and DMA heap free / largest block / minimum, and the calling task's free stack.
+- Preset question picker on the Grok screen: Up/Down picks, A asks, B goes back. 8 built-in questions in flash; `grok q list`, `grok q set <n> <text>`, `grok q clear <n>`, `grok q ask <n>` (custom text in NVS `grokcfg/q1`..`q8`).
 - Two-slot OTA partition layout (ota_0 `0x10000`, ota_1 `0x200000`, both `0x1F0000`; otadata `0x3F0000`). No OTA download yet.
 - Browser companion in `web/`. It asks xAI from the server and sends `grok show` over USB. A local, editable Grok Bot list picks the voice for the next question.
 

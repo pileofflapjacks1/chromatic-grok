@@ -293,6 +293,19 @@ sh tests/run_host.sh
 
 That compiles `grok_text` with the host `cc` and checks the proxy's reply parser with no network.
 
+### Preset questions on the handheld
+
+Open the Grok screen (A on the System tab GROK row, or Start while the menu is open). It starts on a list of 8 questions. **Up/Down** picks, **A** asks, **B** goes back. On the reply, Up/Down pages, A asks again, B returns to the list, Start closes.
+
+The 8 built-in questions are in flash. You can replace any slot; custom text is saved in NVS (`grokcfg/q1`..`q8`) and marked `*` in the list:
+
+```text
+grok q list
+grok q set 3 "What should I play tonight?"
+grok q clear 3          (back to the built-in question)
+grok q ask 3            (same as picking it on the handheld)
+```
+
 ### Direct mode (no proxy, BLE off)
 
 The device can call `https://api.x.ai/v1/responses` itself (model `grok-4.7`, same request as `companion/proxy.py`). TLS only fits in RAM with Bluetooth stopped, so direct mode does not start BLE and gives its controller RAM to the heap. Measured on a Chromatic: about 84 KB internal heap free after BLE stops, and a low point of about 10.4 KB during the call.

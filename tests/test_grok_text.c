@@ -1,6 +1,7 @@
 /* Host checks for the portable Grok text helpers. Not part of the ESP-IDF build.
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
+#include "grok_pick.h"
 #include "grok_text.h"
 
 #include <stdio.h>
@@ -158,6 +159,45 @@ static void test_secret(void)
     expect_true("other", !secret("grok keys set x"));
 }
 
+static void test_pick(void)
+{
+    char row[32];
+    int idx = -1;
+
+    for (int i = 0; i < GROK_PICK_COUNT; i++)
+    {
+        const char *q = grok_pick_builtin(i);
+        expect_true("builtin set", (q != NULL) && (q[0] != '\0'));
+        expect_true("builtin fits prompt", (q != NULL) && (strlen(q) <= GROK_PROMPT_MAX));
+        for (const char *p = q; (p != NULL) && (*p != '\0'); p++)
+        {
+            expect_true("builtin ascii", (*p >= 0x20) && (*p <= 0x7e));
+        }
+    }
+    expect_true("builtin range lo", grok_pick_builtin(-1) == NULL);
+    expect_true("builtin range hi", grok_pick_builtin(GROK_PICK_COUNT) == NULL);
+
+    expect_true("step down", grok_pick_step(0, 1) == 1);
+    expect_true("step wrap down", grok_pick_step(GROK_PICK_COUNT - 1, 1) == 0);
+    expect_true("step wrap up", grok_pick_step(0, -1) == GROK_PICK_COUNT - 1);
+    expect_true("step big", grok_pick_step(3, -(GROK_PICK_COUNT * 2 + 1)) == 2);
+
+    expect_true("slot 1", grok_pick_parse_slot("1", &idx) && (idx == 0));
+    expect_true("slot 8", grok_pick_parse_slot("8", &idx) && (idx == 7));
+    expect_true("slot 0", !grok_pick_parse_slot("0", &idx));
+    expect_true("slot 9", !grok_pick_parse_slot("9", &idx));
+    expect_true("slot 10", !grok_pick_parse_slot("10", &idx));
+    expect_true("slot empty", !grok_pick_parse_slot("", &idx));
+
+    grok_pick_format_row(row, sizeof(row), 0, "Tell me a fun fact.", true, false, GROK_TEXT_COLS);
+    expect_true("row sel", strcmp(row, ">1 Tell me a fun fac") == 0);
+    expect_true("row width", strlen(row) == GROK_TEXT_COLS);
+    grok_pick_format_row(row, sizeof(row), 7, "Hi", false, true, GROK_TEXT_COLS);
+    expect_true("row custom", strcmp(row, " 8*Hi") == 0);
+    grok_pick_format_row(row, 6, 2, "abcdef", false, false, GROK_TEXT_COLS);
+    expect_true("row small cap", strcmp(row, " 3 ab") == 0);
+}
+
 int main(void)
 {
     test_wrap();
@@ -165,6 +205,7 @@ int main(void)
     test_fold();
     test_responses();
     test_secret();
+    test_pick();
     if (g_failed != 0)
     {
         fprintf(stderr, "%d failed\n", g_failed);

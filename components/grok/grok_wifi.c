@@ -334,6 +334,75 @@ GrokMode_t grok_store_get_mode(void)
     return (v == GROK_MODE_DIRECT) ? GROK_MODE_DIRECT : GROK_MODE_PROXY;
 }
 
+/* Custom preset questions: NVS keys "q1".."q8". Read on demand, not cached. */
+static void question_key(int idx, char key[4])
+{
+    key[0] = 'q';
+    key[1] = (char)('1' + idx);
+    key[2] = '\0';
+}
+
+bool grok_store_get_question(int idx, char *out, size_t out_cap)
+{
+    char key[4];
+    size_t len = out_cap;
+    esp_err_t err;
+
+    if ((out == NULL) || (out_cap == 0))
+    {
+        return false;
+    }
+    out[0] = '\0';
+    if ((idx < 0) || (idx >= GROK_PICK_COUNT) || !store_open())
+    {
+        return false;
+    }
+    question_key(idx, key);
+    lock();
+    err = nvs_get_str(s_nvs, key, out, &len);
+    unlock();
+    if (err != ESP_OK)
+    {
+        out[0] = '\0';
+        return false;
+    }
+    return out[0] != '\0';
+}
+
+bool grok_store_set_question(int idx, const char *text)
+{
+    char key[4];
+    esp_err_t a;
+    esp_err_t b;
+
+    if ((idx < 0) || (idx >= GROK_PICK_COUNT) || (text == NULL) || (text[0] == '\0') ||
+        (strlen(text) > GROK_PROMPT_MAX) || !store_open())
+    {
+        return false;
+    }
+    question_key(idx, key);
+    lock();
+    a = nvs_set_str(s_nvs, key, text);
+    b = nvs_commit(s_nvs);
+    unlock();
+    return (a == ESP_OK) && (b == ESP_OK);
+}
+
+void grok_store_clear_question(int idx)
+{
+    char key[4];
+
+    if ((idx < 0) || (idx >= GROK_PICK_COUNT) || !store_open())
+    {
+        return;
+    }
+    question_key(idx, key);
+    lock();
+    nvs_erase_key(s_nvs, key);
+    nvs_commit(s_nvs);
+    unlock();
+}
+
 static void fill_config(wifi_config_t *cfg)
 {
     memset(cfg, 0, sizeof(*cfg));
