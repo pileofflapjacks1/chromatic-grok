@@ -23,3 +23,8 @@ bool Grok_WantsRadioAwake(void);
  * Start where esp_console_start_repl() was called. */
 esp_err_t Grok_ConsoleInit(const esp_console_dev_uart_config_t *dev, const esp_console_repl_config_t *repl);
 esp_err_t Grok_ConsoleStart(void);
+
+/* Call right after NVS is up (persist_storage_init) and before Grok_Init.
+ * Counts a trial boot of a freshly installed update, or rolls back to the
+ * previous slot. See grok_update.c. */
+void Grok_UpdateBootCheck(void);

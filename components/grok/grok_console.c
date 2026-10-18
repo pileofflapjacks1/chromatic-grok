@@ -44,6 +44,7 @@ static uint32_t s_stack;
 static UBaseType_t s_prio;
 static BaseType_t s_core;
 static bool s_ready;
+static volatile bool s_running;
 
 static void out_flush(void)
 {
@@ -122,6 +123,7 @@ static void console_task(void *arg)
     printf("\nType 'help' to get the list of commands.\n"
            "Up arrow recalls the last command. Keys and passwords echo as '*'.\n");
 
+    s_running = true;
     for (;;)
     {
         size_t len = 0;
@@ -244,6 +246,11 @@ esp_err_t Grok_ConsoleInit(const esp_console_dev_uart_config_t *dev, const esp_c
     s_core = repl->task_core_id;
     s_ready = true;
     return ESP_OK;
+}
+
+bool grok_console_running(void)
+{
+    return s_running;
 }
 
 esp_err_t Grok_ConsoleStart(void)

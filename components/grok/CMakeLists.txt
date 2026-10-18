@@ -9,10 +9,12 @@ idf_component_register(
         "grok_ble.c"
         "grok_ui.c"
         "grok_console.c"
+        "grok_ota_util.c"
+        "grok_update.c"
     INCLUDE_DIRS "."
     REQUIRES
         osd common button tab console nvs_flash freertos
         esp_wifi esp_netif esp_event esp_http_client esp_timer mbedtls
-        esp_driver_uart vfs
+        esp_driver_uart vfs app_update esp_partition esp_app_format
         bt lvgl
 )

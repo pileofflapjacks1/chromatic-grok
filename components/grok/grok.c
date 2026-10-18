@@ -5,6 +5,7 @@
 #include "grok.h"
 
 #include "grok_internal.h"
+#include "grok_ota_util.h"
 
 #include "esp_console.h"
 #include "freertos/FreeRTOS.h"
@@ -16,7 +17,14 @@
 #include <stdio.h>
 #include <string.h>
 
+typedef enum {
+    GROK_JOB_ASK = 0,
+    GROK_JOB_UPDATE,   /* prompt holds the https URL */
+    GROK_JOB_ROLLBACK,
+} GrokJobKind_t;
+
 typedef struct GrokJob {
+    uint8_t kind;
     char prompt[GROK_PROMPT_MAX + 1];
 } GrokJob_t;
 
@@ -321,6 +329,63 @@ static void cmd_q(int argc, char **argv)
     grok_say("grok: q list | q set <1-8> <text> | q clear <1-8> | q ask <1-8>\n");
 }
 
+static bool submit_job(uint8_t kind, const char *text)
+{
+    GrokJob_t job;
+
+    if (s_jobs == NULL)
+    {
+        grok_publish("grok: radio is not up");
+        return false;
+    }
+    memset(&job, 0, sizeof(job));
+    job.kind = kind;
+    snprintf(job.prompt, sizeof(job.prompt), "%s", (text != NULL) ? text : "");
+    if (xQueueSend(s_jobs, &job, 0) != pdTRUE)
+    {
+        grok_publish("busy");
+        return false;
+    }
+    return true;
+}
+
+static void cmd_update(int argc, char **argv)
+{
+    const char *url = GROK_UPDATE_DEFAULT_URL;
+
+    if ((argc == 3) && (strcmp(argv[2], "status") == 0))
+    {
+        grok_update_status();
+        return;
+    }
+    if ((argc == 3) && (strcmp(argv[2], "rollback") == 0))
+    {
+        submit_job(GROK_JOB_ROLLBACK, NULL);
+        return;
+    }
+    if ((argc == 3) && (strcmp(argv[2], "hold") == 0))
+    {
+        grok_update_arm_hold();
+        return;
+    }
+    if (argc == 3)
+    {
+        url = argv[2];
+    }
+    else if (argc != 2)
+    {
+        grok_say("grok update [https-url] | status | rollback | hold\n");
+        return;
+    }
+    if (!grok_ota_url_ok(url, GROK_PROMPT_MAX + 1))
+    {
+        grok_say("update: url must be https:// and at most 200 characters\n");
+        return;
+    }
+    printf("update: queued. BLE turns off until the next reboot.\n");
+    submit_job(GROK_JOB_UPDATE, url);
+}
+
 static void wifi_usage(void)
 {
     grok_say("wifi: status | connect | disconnect | clear | set <ssid> <password>\n");
@@ -328,7 +393,7 @@ static void wifi_usage(void)
 
 static void grok_usage(void)
 {
-    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | q list|set <n> <text>|clear <n>|ask <n> | ble unpair | page next|prev|N | ask <prompt> | show <text>\n");
+    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | q list|set <n> <text>|clear <n>|ask <n> | ble unpair | update [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
 }
 
 static void cmd_wifi(int argc, char **argv)
@@ -537,6 +602,11 @@ static void cmd_grok(int argc, char **argv)
         cmd_q(argc, argv);
         return;
     }
+    if (strcmp(argv[1], "update") == 0)
+    {
+        cmd_update(argc, argv);
+        return;
+    }
     if (strcmp(argv[1], "mem") == 0)
     {
         grok_mem_print("now");
@@ -735,8 +805,16 @@ static void radio_task(void *arg)
         char token[GROK_TOKEN_MAX + 1];
         char reply[GROK_REPLY_MAX + 1];
 
-        if (xQueueReceive(s_jobs, &job, portMAX_DELAY) != pdTRUE)
+        if (xQueueReceive(s_jobs, &job, grok_update_trial() ? pdMS_TO_TICKS(1000) : portMAX_DELAY) != pdTRUE)
         {
+            grok_update_tick();
+            continue;
+        }
+        grok_update_tick();
+
+        if (job.kind == GROK_JOB_ROLLBACK)
+        {
+            grok_update_rollback_now();
             continue;
         }
 
@@ -750,6 +828,18 @@ static void radio_task(void *arg)
         if (!grok_wifi_is_connected())
         {
             grok_publish("no wifi");
+            continue;
+        }
+
+        if (job.kind == GROK_JOB_UPDATE)
+        {
+            /* Same as direct mode: TLS needs the BLE controller's RAM. */
+            if (!grok_ble_released() && !grok_ble_stop())
+            {
+                grok_publish("ble did not stop; reboot and retry");
+                continue;
+            }
+            grok_update_run(job.prompt);
             continue;
         }
 
@@ -809,7 +899,7 @@ static void register_commands(void)
     };
     const esp_console_cmd_t grok_cmd = {
         .command = "grok",
-        .help = "Grok link: status, ask, q, show, url, token, mode, key, mem, page, open, close, retry, sleep",
+        .help = "Grok link: status, ask, q, show, url, token, mode, key, mem, update, page, open, close, retry, sleep",
         .hint = NULL,
         .func = &cmd_entry,
     };

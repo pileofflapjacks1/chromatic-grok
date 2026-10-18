@@ -88,3 +88,19 @@ void grok_ui_page(int delta);
 void grok_ui_set_page(int page);
 /* Show the preset question picker. */
 void grok_ui_open_picker(void);
+
+/* True once the masked-echo console task is reading input. */
+bool grok_console_running(void);
+
+/* Wireless update (grok_update.c). run/rollback_now execute on the radio
+ * task; they restart the chip on success. */
+#define GROK_UPDATE_DEFAULT_URL \
+    "https://github.com/pileofflapjacks1/chromatic-grok/releases/latest/download/chromatic_grok.signed.bin"
+bool grok_update_run(const char *url);
+bool grok_update_rollback_now(void);
+void grok_update_status(void);
+void grok_update_arm_hold(void);
+/* True while a freshly installed image has not been confirmed yet. */
+bool grok_update_trial(void);
+/* Called about once a second by the radio task while a trial runs. */
+void grok_update_tick(void);

@@ -235,6 +235,7 @@ static esp_console_dev_uart_config_t ReplHWConfig = ESP_CONSOLE_DEV_UART_CONFIG_
 void app_main(void)
 {
     persist_storage_init();
+    Grok_UpdateBootCheck();
     Mutex_Init();
 
     // Set up the system management UART to/from the FPGA
