@@ -334,6 +334,39 @@ GrokMode_t grok_store_get_mode(void)
     return (v == GROK_MODE_DIRECT) ? GROK_MODE_DIRECT : GROK_MODE_PROXY;
 }
 
+bool grok_store_set_web(bool on)
+{
+    esp_err_t a;
+    esp_err_t b;
+
+    if (!store_open())
+    {
+        return false;
+    }
+    lock();
+    a = nvs_set_u8(s_nvs, "web", on ? 1 : 0);
+    b = nvs_commit(s_nvs);
+    unlock();
+    return (a == ESP_OK) && (b == ESP_OK);
+}
+
+bool grok_store_get_web(void)
+{
+    uint8_t v = 0;
+
+    if (!store_open())
+    {
+        return false;
+    }
+    lock();
+    if (nvs_get_u8(s_nvs, "web", &v) != ESP_OK)
+    {
+        v = 0;
+    }
+    unlock();
+    return v == 1;
+}
+
 /* Custom preset questions: NVS keys "q1".."q8". Read on demand, not cached. */
 static void question_key(int idx, char key[4])
 {
@@ -446,6 +479,7 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
             retry = (s_retries <= 10);
         }
         unlock();
+        grok_web_down();
         if (s_hold)
         {
             printf("wifi: disconnected\n");
@@ -472,6 +506,7 @@ static void on_wifi_event(void *arg, esp_event_base_t base, int32_t id, void *da
         esp_ip4addr_ntoa(&event->ip_info.ip, s_ip, sizeof(s_ip));
         printf("wifi: connected ip=%s\n", s_ip);
         unlock();
+        grok_web_kick();
     }
 }
 
