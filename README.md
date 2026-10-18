@@ -27,9 +27,9 @@ Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are no
 - Stock OSD, with a GROK row on the System tab and a Start shortcut while the menu is open.
 - Wi-Fi station mode. SSID and password are stored in NVS (`grokcfg`) and can be set from the serial console.
 - BLE peripheral named `ChromaticGrok`. It speaks the same line commands as the console, but only after passkey pairing (encrypted, bonded, MITM-protected).
-- `grok ask` posts the prompt to an `http://` proxy you run. The proxy holds the xAI key.
+- `grok ask` posts the prompt to an `http://` proxy you run (the proxy holds the xAI key), or, in direct mode, calls api.x.ai over HTTPS with BLE off.
 - `grok show` displays text the computer already has, so a reply can reach the screen with no device Wi-Fi.
-- Replies use the stock `fingfai` font, 32 columns, 12 lines per page.
+- Replies use the 8x8 `unscii_8` font, 20 columns, 13 lines per page.
 
 ## 1. Back up the stock flash
 
@@ -96,22 +96,34 @@ idf.py build
 
 ### The first flash must write the partition table too
 
-Stock firmware uses ESP-IDF's default single-app partition table: NVS at `0x9000`, phy_init at `0xf000`, and a **1 MB** factory app at `0x10000`. (Upstream oss-chromatic-console-mcu has no `partitions.csv` and does not set a partition table option, so it gets that default.) This firmware's `partitions.csv` keeps NVS and phy_init in the same places but makes the factory slot **`0x1F0000`** (about 2 MB), because Wi-Fi and BLE do not fit in 1 MB.
+Stock firmware uses ESP-IDF's default single-app partition table: NVS at `0x9000`, phy_init at `0xf000`, and a **1 MB** factory app at `0x10000`. (Upstream oss-chromatic-console-mcu has no `partitions.csv` and does not set a partition table option, so it gets that default.) This firmware's `partitions.csv` keeps NVS and phy_init in the same places and replaces the 1 MB factory slot with **two OTA app slots of `0x1F0000`** (about 2 MB each), because Wi-Fi, BLE and TLS do not fit in 1 MB:
 
-So the **first** flash of this firmware onto a stock Chromatic must write **both**:
+| Name | Offset | Size |
+|---|---|---|
+| nvs | `0x9000` | `0x6000` |
+| phy_init | `0xf000` | `0x1000` |
+| ota_0 | `0x10000` | `0x1F0000` |
+| ota_1 | `0x200000` | `0x1F0000` |
+| otadata | `0x3F0000` | `0x2000` |
 
-- the custom partition table at `0x8000`, and
-- the app at `0x10000`.
+The app still goes to `0x10000` (ota_0). With otadata erased (all `0xFF`) and no factory partition, the ESP-IDF bootloader boots ota_0. There is no OTA download code yet; ota_1 is reserved for it.
+
+So the **first** flash of this firmware onto a stock Chromatic (or onto an earlier build with the single `factory` slot) must write:
+
+- the custom partition table at `0x8000`,
+- the app at `0x10000`, and
+- `build/ota_data_initial.bin` (8 KB of `0xFF`) at `0x3F0000`, so otadata is blank.
 
 Writing only the app at `0x10000` onto a stock device does not work: the image is larger than the stock 1 MB slot, and the stock table at `0x8000` still describes that 1 MB slot, so the app overflows it and will not boot.
 
-Recommended command (writes exactly `0x8000` and `0x10000`, nothing else):
+Recommended command (writes exactly `0x8000`, `0x10000` and `0x3F0000`, nothing else):
 
 ```bash
 . $HOME/esp-idf/export.sh
 esptool.py --chip esp32 -p "$PORT" -b 115200 write_flash \
   0x8000 build/partition_table/partition-table.bin \
-  0x10000 build/chromatic_grok.bin
+  0x10000 build/chromatic_grok.bin \
+  0x3F0000 build/ota_data_initial.bin
 ```
 
 Then open the console (115200 is also the monitor speed):
@@ -124,19 +136,20 @@ Leave the monitor with `Ctrl-]`.
 
 ### What `idf.py flash` writes
 
-`idf.py -p "$PORT" flash` writes three regions for this project (no OTA data, since the table has no OTA slots):
+`idf.py -p "$PORT" flash` writes four regions for this project:
 
 | Offset | File | Written by `idf.py flash` | Written by the esptool command above |
 |---|---|---|---|
 | `0x1000` | `build/bootloader/bootloader.bin` | yes | no |
 | `0x8000` | `build/partition_table/partition-table.bin` | yes | yes |
 | `0x10000` | `build/chromatic_grok.bin` | yes | yes |
+| `0x3F0000` | `build/ota_data_initial.bin` | yes | yes |
 
 The esptool command above is preferred. Rewriting the bootloader at `0x1000` is not needed (the stock bootloader reads the new table and boots the new app), and a bad or interrupted bootloader write is the riskiest part of a flash. Also, `idf.py` flashes at 460800 by default, which this port does not support. If you use `idf.py flash` anyway, pass the speed explicitly: `idf.py -p "$PORT" -b 115200 flash monitor`. That still rewrites `0x1000`.
 
-Neither command touches NVS (`0x9000`) or phy_init (`0xf000`), so menu settings survive. A full chip erase (`idf.py erase-flash`) will not. Later app-only updates can write just `0x10000 build/chromatic_grok.bin` once the custom table is on the device, but writing both again is harmless.
+Neither command touches NVS (`0x9000`) or phy_init (`0xf000`), so menu settings, Wi-Fi, the proxy token and the xAI key survive. A full chip erase (`idf.py erase-flash`) will not. Later app-only updates can write just `0x10000 build/chromatic_grok.bin` once this table is on the device and otadata is blank. Once OTA exists and has switched to ota_1, an app write to `0x10000` will not be booted until otadata is erased again.
 
-If `idf.py` rejects a name in `sdkconfig.defaults`, fix that symbol from the v5.3 Kconfig instead of guessing. Wi-Fi and BLE together are tight on this chip: buffers are reduced, AMPDU is off, and HTTPS is off.
+If `idf.py` rejects a name in `sdkconfig.defaults`, fix that symbol from the v5.3 Kconfig instead of guessing. Wi-Fi and BLE together are tight on this chip: buffers are reduced and AMPDU is off. HTTPS (direct mode) only fits with BLE stopped.
 
 ## 4. Restore stock firmware
 
@@ -149,7 +162,7 @@ esptool.py --chip esp32 -p "$PORT" -b 115200 write_flash 0x0 chromatic-stock-4mb
 
 Use 115200 here too; it is the only speed the port supports. Writing 4 MB at that speed takes several minutes. Keep the Chromatic powered and connected until esptool reports the hash was verified.
 
-Restore the whole image at `0x0`, not just the stock app. This firmware replaced the stock partition table at `0x8000`, so writing only a stock app at `0x10000` would leave this firmware's `0x1F0000` table on the device, which is not stock. The full backup puts back the bootloader, the stock 1 MB table, NVS and the stock app in one write.
+Restore the whole image at `0x0`, not just the stock app. This firmware replaced the stock partition table at `0x8000`, so writing only a stock app at `0x10000` would leave this firmware's two-slot table on the device, which is not stock. The full backup puts back the bootloader, the stock 1 MB table, NVS and the stock app in one write.
 
 The official MR Updater can also return a Chromatic to current stock firmware. Downloads: https://modretro.com/pages/downloads. That updater installs ModRetro's latest stock image. It does not restore your backup file.
 
@@ -280,16 +293,32 @@ sh tests/run_host.sh
 
 That compiles `grok_text` with the host `cc` and checks the proxy's reply parser with no network.
 
+### Direct mode (no proxy, BLE off)
+
+The device can call `https://api.x.ai/v1/responses` itself (model `grok-4.7`, same request as `companion/proxy.py`). TLS only fits in RAM with Bluetooth stopped, so direct mode does not start BLE and gives its controller RAM to the heap. Measured on a Chromatic: about 84 KB internal heap free after BLE stops, and a low point of about 10.4 KB during the call.
+
+```text
+grok mode direct
+grok key set <xAI API key>     (echoes as ****)
+grok status                    (shows xai_key=set, never the key)
+grok mem
+grok ask "hello"
+```
+
+`grok mode proxy` and a reboot bring BLE back. `grok key clear` erases the key. The key is stored **unencrypted** in NVS (`grokcfg/xaikey`); anyone with the device and esptool can read it. Use a low-limit key you can revoke.
+
 ## Known limitations
 
 - This tree builds and links with ESP-IDF v5.3 (IRAM 14.3 KB free, static DRAM 11.3 KB free, app 26% free), but it has not been flashed or tested on a Chromatic here. Build it locally before trusting a flash. NimBLE include paths and Kconfig names follow ESP-IDF v5.3; if `idf.py` disagrees, the build log is the source of truth.
 - Light sleep is off by default, so the battery will not last as long as stock.
-- The font is ASCII. Other bytes become `?`. Replies are capped at 640 characters, 32 columns, and 12 lines per page.
-- One HTTP request at a time. The device speaks plain `http://` only, with no TLS and no API key.
+- The font is ASCII. Other bytes become `?`. Replies are capped at 640 characters, 20 columns, and 13 lines per page.
+- One request at a time. Proxy mode speaks plain `http://`. Direct mode uses TLS to api.x.ai with BLE off; the xAI key is then on the device, unencrypted.
 - The proxy uses a shared bearer token over plain HTTP. Anyone who can sniff the LAN can see the token; rotate it if the network is shared.
 - BLE pairing was written against the NimBLE v5.3 API and has not been tested with a real central here.
 - BLE lines are about 240 bytes. The serial console splits at 32 arguments unless you quote the prompt.
-- There is no PSRAM. Wi-Fi and BLE buffers are reduced. AMPDU and HTTPS are off.
+- There is no PSRAM. Wi-Fi and BLE buffers are reduced and AMPDU is off. HTTPS only fits with BLE stopped (direct mode).
+- The serial console is a minimal line reader (Backspace, Ctrl-U, Ctrl-C, Up arrow for the last command). No TAB completion or longer history.
+- The two OTA slots are laid out but there is no OTA download yet.
 - The fourth System row (FIRMWARE, PLAYER #, optional SERIAL #, then GROK) can sit near the battery icon.
 - QIO flash mode is not used. Do not turn it on. Those pins belong to the FPGA UART.
 - Select cannot be a chord. The stock driver drops it.
@@ -298,11 +327,11 @@ That compiles `grok_text` with the host `cc` and checks the proxy's reply parser
 ## Layout
 
 ```text
-components/grok/     Wi-Fi, BLE, HTTP, screen overlay, commands
+components/grok/     Wi-Fi, BLE, HTTP/HTTPS, serial console, screen overlay, commands
 companion/proxy.py   LAN proxy. Holds XAI_API_KEY.
 companion/chromatic_grok.py
 docs/PROTOCOL.md
-partitions.csv       NVS stays at 0x9000. Factory app is 0x1F0000 (stock: 1 MB).
+partitions.csv       NVS stays at 0x9000. Two OTA app slots of 0x1F0000 (stock: one 1 MB factory app).
 ```
 
 Stock behavior outside that link is intentionally untouched: FPGA UART, button edges, the settings namespace, and the menu bitmaps.

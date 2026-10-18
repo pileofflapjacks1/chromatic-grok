@@ -1,5 +1,12 @@
-# Name,   Type, SubType, Offset,  Size, Flags
-# NVS offset and size match the ESP-IDF single-app table so menu settings can survive an app reflash.
-nvs,      data, nvs,     0x9000,  0x6000,
-phy_init, data, phy,     0xf000,  0x1000,
-factory,  app,  factory, 0x10000, 0x1F0000,
+# Name,   Type, SubType, Offset,   Size,     Flags
+# NVS and phy_init keep the stock ESP-IDF offsets so Wi-Fi, proxy token,
+# xAI key and menu settings survive an app/table reflash.
+nvs,      data, nvs,     0x9000,   0x6000,
+phy_init, data, phy,     0xf000,   0x1000,
+# Two app slots for OTA. ota_0 is at 0x10000, where the factory app was, so
+# app-only flashing still writes 0x10000. With otadata erased (all 0xFF) and
+# no factory partition, the ESP-IDF bootloader boots ota_0.
+ota_0,    app,  ota_0,   0x10000,  0x1F0000,
+ota_1,    app,  ota_1,   0x200000, 0x1F0000,
+# otadata at the end of flash (two 4 KB sectors); 0x3F2000-0x3FFFFF unused.
+otadata,  data, ota,     0x3F0000, 0x2000,
