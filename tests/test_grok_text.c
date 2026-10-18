@@ -138,12 +138,33 @@ static void test_responses(void)
     expect_true("redact no key leak", strstr(red, "abc") == NULL);
 }
 
+static int secret(const char *typed)
+{
+    return grok_text_secret_at(typed, strlen(typed));
+}
+
+static void test_secret(void)
+{
+    expect_true("key prefix", !secret("grok key set"));
+    expect_true("key first char", secret("grok key set "));
+    expect_true("key mid", secret("grok key set xai-ab"));
+    expect_true("key spaces", secret("  grok   key\tset  x"));
+    expect_true("key clear", !secret("grok key clear "));
+    expect_true("token", secret("grok token set "));
+    expect_true("wifi ssid shown", !secret("wifi set MyNet"));
+    expect_true("wifi pass hidden", secret("wifi set MyNet "));
+    expect_true("ask shown", !secret("grok ask what is up"));
+    expect_true("partial word", !secret("grok key settings"));
+    expect_true("other", !secret("grok keys set x"));
+}
+
 int main(void)
 {
     test_wrap();
     test_json();
     test_fold();
     test_responses();
+    test_secret();
     if (g_failed != 0)
     {
         fprintf(stderr, "%d failed\n", g_failed);

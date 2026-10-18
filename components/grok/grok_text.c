@@ -580,3 +580,74 @@ size_t grok_text_redact(const char *in, const char *secret, char *out, size_t ou
     out[n] = '\0';
     return n;
 }
+
+/* Serial console masking. True when the character typed at buf[pos] belongs
+ * to a secret argument: "grok key set <key>", "grok token set <token>" or
+ * "wifi set <ssid> <password>". The first three words must be complete
+ * (followed by whitespace) before buf[pos]. */
+bool grok_text_secret_at(const char *buf, size_t pos)
+{
+    static const char *const kRules[][3] = {
+        { "grok", "key", "set" },
+        { "grok", "token", "set" },
+        { "wifi", "set", NULL },   /* NULL: any word (the SSID) */
+    };
+    size_t start[3];
+    size_t len[3];
+    size_t done = 0;
+    size_t i = 0;
+
+    if (buf == NULL)
+    {
+        return false;
+    }
+    while ((i < pos) && (done < 3))
+    {
+        size_t s;
+
+        while ((i < pos) && ((buf[i] == ' ') || (buf[i] == '\t')))
+        {
+            i++;
+        }
+        if (i >= pos)
+        {
+            break;
+        }
+        s = i;
+        while ((i < pos) && (buf[i] != ' ') && (buf[i] != '\t'))
+        {
+            i++;
+        }
+        if (i >= pos)
+        {
+            break; /* word still being typed */
+        }
+        start[done] = s;
+        len[done] = i - s;
+        done++;
+    }
+    if (done < 3)
+    {
+        return false;
+    }
+    for (size_t r = 0; r < (sizeof(kRules) / sizeof(kRules[0])); r++)
+    {
+        bool match = true;
+
+        for (size_t w = 0; w < 3; w++)
+        {
+            const char *want = kRules[r][w];
+
+            if ((want != NULL) && ((strlen(want) != len[w]) || (strncmp(buf + start[w], want, len[w]) != 0)))
+            {
+                match = false;
+                break;
+            }
+        }
+        if (match)
+        {
+            return true;
+        }
+    }
+    return false;
+}

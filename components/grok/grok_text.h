@@ -38,3 +38,8 @@ bool grok_text_responses_error(const char *json, char *out, size_t out_cap);
 /* Copy in to out, replacing secret and anything shaped like "xai-..." with
  * "[redacted]". Returns the output length. */
 size_t grok_text_redact(const char *in, const char *secret, char *out, size_t out_cap);
+
+/* True if the character at buf[pos] is part of a secret argument
+ * (grok key set / grok token set / wifi set <ssid> password) and must not be
+ * echoed. buf[0..pos) is the text typed so far. */
+bool grok_text_secret_at(const char *buf, size_t pos);

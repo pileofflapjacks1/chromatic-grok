@@ -6,9 +6,9 @@
  * API, with the same request shape as companion/proxy.py. Used only in
  * "grok mode direct", after BLE has been stopped to free heap.
  *
- * The API key is never printed or logged. Every buffer that held it is
- * zeroed before it is freed. esp_http_client keeps its own copy of the
- * Authorization header, which it frees (without zeroing) on cleanup.
+ * The API key is never printed or logged. Our buffers and esp_http_client's
+ * Authorization header copy are zeroed before they are freed. The client's
+ * TX scratch buffer (request header text) is freed without zeroing.
  */
 #include "grok_internal.h"
 
@@ -17,6 +17,8 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #if CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
 #include "esp_crt_bundle.h"
 #endif
@@ -55,14 +57,15 @@ void grok_mem_print(const char *label)
     const uint32_t icaps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     const uint32_t dcaps = MALLOC_CAP_DMA;
 
-    printf("mem %s: int8 free=%u largest=%u min=%u | dma free=%u largest=%u min=%u\n",
+    printf("mem %s: int8 free=%u largest=%u min=%u | dma free=%u largest=%u min=%u | stack_free=%u\n",
            (label != NULL) ? label : "",
            (unsigned)heap_caps_get_free_size(icaps),
            (unsigned)heap_caps_get_largest_free_block(icaps),
            (unsigned)heap_caps_get_minimum_free_size(icaps),
            (unsigned)heap_caps_get_free_size(dcaps),
            (unsigned)heap_caps_get_largest_free_block(dcaps),
-           (unsigned)heap_caps_get_minimum_free_size(dcaps));
+           (unsigned)heap_caps_get_minimum_free_size(dcaps),
+           (unsigned)(uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t)));
     fflush(stdout);
 }
 
@@ -260,6 +263,15 @@ bool grok_https_ask(const char *key, const char *prompt, char *reply, size_t rep
 done:
     if (client != NULL)
     {
+        char *hdr = NULL;
+
+        /* Zero esp_http_client's own copy of the Authorization value before
+         * cleanup frees it. Its 1 KB TX scratch buffer, which held the
+         * request header text, is still freed without zeroing. */
+        if ((esp_http_client_get_header(client, "Authorization", &hdr) == ESP_OK) && (hdr != NULL))
+        {
+            memset(hdr, 0, strlen(hdr));
+        }
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
     }

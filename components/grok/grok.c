@@ -11,7 +11,6 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "linenoise/linenoise.h"
 #include "lvgl.h"
 
 #include <stdio.h>
@@ -28,7 +27,6 @@ static QueueHandle_t s_jobs;
 static char s_last[GROK_PROMPT_MAX + 1];
 static char s_show[GROK_REPLY_MAX + 1];
 static char s_folded[GROK_REPLY_MAX + 1];
-static TaskHandle_t s_console_task;
 
 static void lock(void)
 {
@@ -257,22 +255,6 @@ static int split_args(char *line, char **argv, int max)
     return argc;
 }
 
-/* Replace console history so a typed key cannot be recalled with the up
- * arrow. linenoiseHistoryFree() leaves a stale length behind, so shrink the
- * history to one entry, overwrite it, and restore the REPL default (32,
- * ESP_CONSOLE_REPL_CONFIG_DEFAULT; main.c does not change it). linenoise
- * history is not thread safe: only do this on the console task, between
- * lines, never from the BLE path. */
-static void forget_console_line(void)
-{
-    if ((s_console_task != NULL) && (xTaskGetCurrentTaskHandle() == s_console_task))
-    {
-        linenoiseHistorySetMaxLen(1);
-        linenoiseHistoryAdd("grok key set (hidden)");
-        linenoiseHistorySetMaxLen(32);
-    }
-}
-
 static void wifi_usage(void)
 {
     grok_say("wifi: status | connect | disconnect | clear | set <ssid> <password>\n");
@@ -401,7 +383,12 @@ static void cmd_grok(int argc, char **argv)
                 grok_say("grok: token is too long\n");
                 return;
             }
-            grok_say(grok_store_set_token(argv[3]) ? "grok: token saved\n" : "grok: could not save token\n");
+            {
+                bool saved = grok_store_set_token(argv[3]);
+
+                memset(argv[3], 0, strlen(argv[3]));
+                grok_say(saved ? "grok: token saved\n" : "grok: could not save token\n");
+            }
             return;
         }
         if ((argc == 3) && (strcmp(argv[2], "clear") == 0))
@@ -416,7 +403,8 @@ static void cmd_grok(int argc, char **argv)
     if (strcmp(argv[1], "key") == 0)
     {
         /* xAI API key for direct mode. Never echoed, logged or put in an
-         * error message. The console line is dropped from history. */
+         * error message. The serial console echoes it as '*' and keeps no
+         * history of it (grok_console.c); argv is zeroed here. */
         if ((argc == 4) && (strcmp(argv[2], "set") == 0))
         {
             size_t len = strlen(argv[3]);
@@ -427,7 +415,6 @@ static void cmd_grok(int argc, char **argv)
                 saved = grok_store_set_xai_key(argv[3]);
             }
             memset(argv[3], 0, len);
-            forget_console_line();
             if ((len < GROK_XAI_KEY_MIN) || (len > GROK_XAI_KEY_MAX))
             {
                 grok_say("grok: key must be 16 to 192 printable characters; not saved\n");
@@ -445,10 +432,6 @@ static void cmd_grok(int argc, char **argv)
         for (int i = 3; i < argc; i++)
         {
             memset(argv[i], 0, strlen(argv[i]));
-        }
-        if (argc >= 4)
-        {
-            forget_console_line();
         }
         grok_say("grok: key set <key> | key clear\n");
         return;
@@ -741,7 +724,6 @@ static void radio_task(void *arg)
 
 static int cmd_entry(int argc, char **argv)
 {
-    s_console_task = xTaskGetCurrentTaskHandle();
     grok_exec(argc, argv);
     return 0;
 }
