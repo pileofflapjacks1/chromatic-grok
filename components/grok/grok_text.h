@@ -28,3 +28,13 @@ bool grok_text_json_get_string(const char *json, const char *key, char *out, siz
  */
 size_t grok_text_wrap(const char *text, char *storage, size_t line_stride,
                       size_t max_lines, size_t cols);
+
+/* Text of the first output_text block in an xAI/OpenAI Responses API body. */
+bool grok_text_responses_text(const char *json, char *out, size_t out_cap);
+
+/* The error string ("error" string, else "message") from an API error body. */
+bool grok_text_responses_error(const char *json, char *out, size_t out_cap);
+
+/* Copy in to out, replacing secret and anything shaped like "xai-..." with
+ * "[redacted]". Returns the output length. */
+size_t grok_text_redact(const char *in, const char *secret, char *out, size_t out_cap);

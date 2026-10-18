@@ -100,11 +100,50 @@ static void test_fold(void)
     expect_true("fold", strcmp(text, "caf?") == 0);
 }
 
+static void test_responses(void)
+{
+    char out[128];
+    char red[128];
+    /* Shape of an xAI Responses API body: text precedes "usage". */
+    const char *resp =
+        "{\"id\":\"r1\",\"object\":\"response\",\"text\":{\"format\":{\"type\":\"text\"}},"
+        "\"output\":[{\"type\":\"reasoning\",\"summary\":[]},"
+        "{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\","
+        "\"text\":\"Hi {there}\\nok\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":9}}";
+    const char *text_first =
+        "{\"output\":[{\"content\":[{\"annotations\":[],\"text\":\"later\",\"type\":\"output_text\"}]}]}";
+    const char *convenience = "{\"output_text\":\"short\",\"output\":[]}";
+    const char *xai_err = "{\"code\":\"bad\",\"error\":\"Incorrect API key provided: xai-AbC123_def-9. See docs.\"}";
+    const char *oai_err = "{\"error\":{\"message\":\"model not found\",\"type\":\"x\"}}";
+
+    expect_true("resp", grok_text_responses_text(resp, out, sizeof(out)));
+    expect_true("resp text", strcmp(out, "Hi {there}\nok") == 0);
+    expect_true("text first", grok_text_responses_text(text_first, out, sizeof(out)));
+    expect_true("text first text", strcmp(out, "later") == 0);
+    expect_true("convenience", grok_text_responses_text(convenience, out, sizeof(out)));
+    expect_true("convenience text", strcmp(out, "short") == 0);
+    expect_true("no text", !grok_text_responses_text("{\"output\":[]}", out, sizeof(out)));
+    expect_true("truncated", !grok_text_responses_text("{\"content\":[{\"type\":\"output_text\",\"text\":\"cut", out, sizeof(out)));
+
+    expect_true("xai err", grok_text_responses_error(xai_err, out, sizeof(out)));
+    grok_text_redact(out, NULL, red, sizeof(red));
+    expect_true("xai err redacted", strcmp(red, "Incorrect API key provided: [redacted]. See docs.") == 0);
+    expect_true("oai err", grok_text_responses_error(oai_err, out, sizeof(out)));
+    expect_true("oai err text", strcmp(out, "model not found") == 0);
+
+    grok_text_redact("k=SECRETKEY123 end", "SECRETKEY123", red, sizeof(red));
+    expect_true("redact secret", strcmp(red, "k=[redacted] end") == 0);
+    grok_text_redact("xai-abcdefghijklmnop", NULL, red, 6);
+    expect_true("redact small cap", strcmp(red, "[reda") == 0);
+    expect_true("redact no key leak", strstr(red, "abc") == NULL);
+}
+
 int main(void)
 {
     test_wrap();
     test_json();
     test_fold();
+    test_responses();
     if (g_failed != 0)
     {
         fprintf(stderr, "%d failed\n", g_failed);

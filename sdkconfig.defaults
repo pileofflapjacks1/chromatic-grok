@@ -48,9 +48,23 @@ CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
 # CONFIG_ESP_WIFI_AMPDU_TX_ENABLED is not set
 # CONFIG_ESP_WIFI_AMPDU_RX_ENABLED is not set
 
-# The device speaks plain HTTP to a LAN proxy. The proxy holds the API key.
-# CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS is not set
-# CONFIG_MBEDTLS_CERTIFICATE_BUNDLE is not set
+# Proxy mode speaks plain HTTP to a LAN proxy that holds the API key.
+# HTTPS spike: "grok mode direct" calls https://api.x.ai with BLE stopped.
+CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y
+# Common-CA bundle (~40 roots, in flash). api.x.ai chains to GTS Root R4,
+# cross-signed by GlobalSign Root CA; both are in the common bundle.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+# TLS heap: allocate record buffers only while in use, free the CA chain and
+# config after the handshake. 16 KB in (server records can be that big),
+# 4 KB out (our request is ~1.5 KB).
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
+CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
 
 CONFIG_LWIP_MAX_SOCKETS=8
 

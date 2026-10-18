@@ -12,6 +12,14 @@
 #define GROK_SSID_MAX 32
 #define GROK_PASS_MAX 64
 #define GROK_TOKEN_MAX 64
+/* xAI API keys are ~84+ characters. Separate from the proxy token. */
+#define GROK_XAI_KEY_MIN 16
+#define GROK_XAI_KEY_MAX 192
+
+typedef enum {
+    GROK_MODE_PROXY = 0,
+    GROK_MODE_DIRECT = 1,
+} GrokMode_t;
 
 struct _lv_obj_t;
 
@@ -32,6 +40,13 @@ bool grok_store_set_token(const char *token);
 void grok_store_clear_token(void);
 void grok_store_get_token(char *out, size_t out_cap);
 bool grok_store_has_token(void);
+/* The xAI key is read from NVS on demand and never cached or printed. */
+bool grok_store_set_xai_key(const char *key);
+void grok_store_clear_xai_key(void);
+bool grok_store_get_xai_key(char *out, size_t out_cap);
+bool grok_store_has_xai_key(void);
+bool grok_store_set_mode(GrokMode_t mode);
+GrokMode_t grok_store_get_mode(void);
 
 bool grok_wifi_start(void);
 bool grok_wifi_set(const char *ssid, const char *pass);
@@ -47,8 +62,15 @@ bool grok_ble_start(void);
 void grok_ble_queue_text(const char *text);
 void grok_ble_format(char *out, size_t out_cap);
 void grok_ble_unpair(void);
+/* Stop and deinit NimBLE and the controller, then hand the controller RAM to
+ * the heap. Must not run on the NimBLE host task. BLE stays off until reboot. */
+bool grok_ble_stop(void);
+bool grok_ble_released(void);
 
 bool grok_http_ask(const char *url, const char *token, const char *prompt, char *reply, size_t reply_cap);
+/* Direct TLS call to api.x.ai. Prints heap numbers around the handshake. */
+bool grok_https_ask(const char *key, const char *prompt, char *reply, size_t reply_cap);
+void grok_mem_print(const char *label);
 
 void grok_ui_init(struct _lv_obj_t *screen);
 void grok_ui_open(void);
