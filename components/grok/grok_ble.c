@@ -72,6 +72,8 @@ static bool s_started;
 static bool s_advertising;
 static bool s_callout_ready;
 static bool s_released;
+/* Set by grok_ble_stop() before the host stops; read on the host task. */
+static volatile bool s_stopping;
 static SemaphoreHandle_t s_lock;
 static struct ble_npl_callout s_tx_co;
 
@@ -306,6 +308,14 @@ static void start_adv(void)
     const char *name;
     int rc;
 
+    /* ble_hs_stop() preempts advertising and reports ADV_COMPLETE (and
+     * DISCONNECT for a live link) while the host is already STOPPING. A
+     * restart from those events fails with BLE_HS_EDISABLED (30). */
+    if (s_stopping)
+    {
+        s_advertising = false;
+        return;
+    }
     if (ble_gap_adv_active())
     {
         s_advertising = true;
@@ -542,15 +552,24 @@ bool grok_ble_stop(void)
     }
     if (s_started)
     {
+        s_stopping = true;
         lock();
         s_callout_ready = false;
         unlock();
         ble_npl_callout_stop(&s_tx_co);
+        /* Stop advertising ourselves first. ble_gap_adv_stop() does not
+         * raise ADV_COMPLETE, so nothing tries to re-advertise. */
+        if (ble_gap_adv_active())
+        {
+            ble_gap_adv_stop();
+        }
+        s_advertising = false;
 
         rc = nimble_port_stop();
         if (rc != 0)
         {
             printf("ble: stop failed (%d)\n", rc);
+            s_stopping = false;
             return false;
         }
         ble_npl_callout_deinit(&s_tx_co);
