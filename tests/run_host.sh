@@ -8,7 +8,11 @@ cc -std=c11 -Wall -Wextra -I components/grok \
 cc -std=c11 -Wall -Wextra -Werror -I components/grok \
     tests/test_grok_ota.c components/grok/grok_ota_util.c \
     -o /tmp/test_grok_ota
+cc -std=c11 -Wall -Wextra -Werror -I components/grok \
+    tests/test_grok_web.c components/grok/grok_web_util.c \
+    -o /tmp/test_grok_web
 /tmp/test_grok_ota
+/tmp/test_grok_web
 /tmp/test_grok_text
 python3 tests/test_proxy_extract.py
 python3 tests/test_proxy_auth.py
