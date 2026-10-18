@@ -17,7 +17,7 @@ Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are no
 ## Disclaimer
 
 - **Unofficial.** Not affiliated with, endorsed by, or sponsored by ModRetro or Nintendo. ModRetro and Chromatic are trademarks of ModRetro; Game Boy is a trademark of Nintendo.
-- **Flash at your own risk.** Custom firmware can leave the handheld unbootable. Back up the full 4 MB flash first (section 1) and keep that file. There is no OTA and no rollback slot; recovery is over USB.
+- **Flash at your own risk.** Custom firmware can leave the handheld unbootable. Back up the full 4 MB flash first (section 1) and keep that file. Wireless updates (`grok update`) only install signed images and roll back in the app, but recovery from a bad state is over USB. See [docs/REINSTALL.md](docs/REINSTALL.md).
 - **Wi-Fi and BLE are for personal experimentation only.** Turning on the ESP32 radios may fall outside the device's certification (FCC/IC/CE or others). Do not ship or sell devices running this firmware.
 - **Battery life is shorter** while the Grok link keeps the radios awake (the default). `grok sleep on` restores stock light sleep.
 - No warranty. See sections 15 and 16 of the GPL in LICENSE.
@@ -27,9 +27,9 @@ Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are no
 - Stock OSD, with a GROK row on the System tab and a Start shortcut while the menu is open.
 - Wi-Fi station mode. SSID and password are stored in NVS (`grokcfg`) and can be set from the serial console.
 - BLE peripheral named `ChromaticGrok`. It speaks the same line commands as the console, but only after passkey pairing (encrypted, bonded, MITM-protected).
-- `grok ask` posts the prompt to an `http://` proxy you run. The proxy holds the xAI key.
+- `grok ask` posts the prompt to an `http://` proxy you run (the proxy holds the xAI key), or, in direct mode, calls api.x.ai over HTTPS with BLE off.
 - `grok show` displays text the computer already has, so a reply can reach the screen with no device Wi-Fi.
-- Replies use the stock `fingfai` font, 32 columns, 12 lines per page.
+- Replies use the 8x8 `unscii_8` font, 20 columns, 13 lines per page.
 
 ## 1. Back up the stock flash
 
@@ -96,22 +96,34 @@ idf.py build
 
 ### The first flash must write the partition table too
 
-Stock firmware uses ESP-IDF's default single-app partition table: NVS at `0x9000`, phy_init at `0xf000`, and a **1 MB** factory app at `0x10000`. (Upstream oss-chromatic-console-mcu has no `partitions.csv` and does not set a partition table option, so it gets that default.) This firmware's `partitions.csv` keeps NVS and phy_init in the same places but makes the factory slot **`0x1F0000`** (about 2 MB), because Wi-Fi and BLE do not fit in 1 MB.
+Stock firmware uses ESP-IDF's default single-app partition table: NVS at `0x9000`, phy_init at `0xf000`, and a **1 MB** factory app at `0x10000`. (Upstream oss-chromatic-console-mcu has no `partitions.csv` and does not set a partition table option, so it gets that default.) This firmware's `partitions.csv` keeps NVS and phy_init in the same places and replaces the 1 MB factory slot with **two OTA app slots of `0x1F0000`** (about 2 MB each), because Wi-Fi, BLE and TLS do not fit in 1 MB:
 
-So the **first** flash of this firmware onto a stock Chromatic must write **both**:
+| Name | Offset | Size |
+|---|---|---|
+| nvs | `0x9000` | `0x6000` |
+| phy_init | `0xf000` | `0x1000` |
+| ota_0 | `0x10000` | `0x1F0000` |
+| ota_1 | `0x200000` | `0x1F0000` |
+| otadata | `0x3F0000` | `0x2000` |
 
-- the custom partition table at `0x8000`, and
-- the app at `0x10000`.
+The app still goes to `0x10000` (ota_0). With otadata erased (all `0xFF`) and no factory partition, the ESP-IDF bootloader boots ota_0. `grok update` writes the inactive slot and switches otadata (see [Wireless updates](#wireless-updates-grok-update)).
+
+So the **first** flash of this firmware onto a stock Chromatic (or onto an earlier build with the single `factory` slot) must write:
+
+- the custom partition table at `0x8000`,
+- the app at `0x10000`, and
+- `build/ota_data_initial.bin` (8 KB of `0xFF`) at `0x3F0000`, so otadata is blank.
 
 Writing only the app at `0x10000` onto a stock device does not work: the image is larger than the stock 1 MB slot, and the stock table at `0x8000` still describes that 1 MB slot, so the app overflows it and will not boot.
 
-Recommended command (writes exactly `0x8000` and `0x10000`, nothing else):
+Recommended command (writes exactly `0x8000`, `0x10000` and `0x3F0000`, nothing else):
 
 ```bash
 . $HOME/esp-idf/export.sh
 esptool.py --chip esp32 -p "$PORT" -b 115200 write_flash \
   0x8000 build/partition_table/partition-table.bin \
-  0x10000 build/chromatic_grok.bin
+  0x10000 build/chromatic_grok.bin \
+  0x3F0000 build/ota_data_initial.bin
 ```
 
 Then open the console (115200 is also the monitor speed):
@@ -124,19 +136,20 @@ Leave the monitor with `Ctrl-]`.
 
 ### What `idf.py flash` writes
 
-`idf.py -p "$PORT" flash` writes three regions for this project (no OTA data, since the table has no OTA slots):
+`idf.py -p "$PORT" flash` writes four regions for this project:
 
 | Offset | File | Written by `idf.py flash` | Written by the esptool command above |
 |---|---|---|---|
 | `0x1000` | `build/bootloader/bootloader.bin` | yes | no |
 | `0x8000` | `build/partition_table/partition-table.bin` | yes | yes |
 | `0x10000` | `build/chromatic_grok.bin` | yes | yes |
+| `0x3F0000` | `build/ota_data_initial.bin` | yes | yes |
 
 The esptool command above is preferred. Rewriting the bootloader at `0x1000` is not needed (the stock bootloader reads the new table and boots the new app), and a bad or interrupted bootloader write is the riskiest part of a flash. Also, `idf.py` flashes at 460800 by default, which this port does not support. If you use `idf.py flash` anyway, pass the speed explicitly: `idf.py -p "$PORT" -b 115200 flash monitor`. That still rewrites `0x1000`.
 
-Neither command touches NVS (`0x9000`) or phy_init (`0xf000`), so menu settings survive. A full chip erase (`idf.py erase-flash`) will not. Later app-only updates can write just `0x10000 build/chromatic_grok.bin` once the custom table is on the device, but writing both again is harmless.
+Neither command touches NVS (`0x9000`) or phy_init (`0xf000`), so menu settings, Wi-Fi, the proxy token and the xAI key survive. A full chip erase (`idf.py erase-flash`) will not. An app-only USB reflash must still write **both** `0x10000 build/chromatic_grok.bin` and `0x3F0000 build/ota_data_initial.bin`: after a wireless update the device may boot ota_1, and only blank otadata makes it boot the app at `0x10000` again. The USB image does not need a signature.
 
-If `idf.py` rejects a name in `sdkconfig.defaults`, fix that symbol from the v5.3 Kconfig instead of guessing. Wi-Fi and BLE together are tight on this chip: buffers are reduced, AMPDU is off, and HTTPS is off.
+If `idf.py` rejects a name in `sdkconfig.defaults`, fix that symbol from the v5.3 Kconfig instead of guessing. Wi-Fi and BLE together are tight on this chip: buffers are reduced and AMPDU is off. HTTPS (direct mode) only fits with BLE stopped.
 
 ## 4. Restore stock firmware
 
@@ -149,9 +162,11 @@ esptool.py --chip esp32 -p "$PORT" -b 115200 write_flash 0x0 chromatic-stock-4mb
 
 Use 115200 here too; it is the only speed the port supports. Writing 4 MB at that speed takes several minutes. Keep the Chromatic powered and connected until esptool reports the hash was verified.
 
-Restore the whole image at `0x0`, not just the stock app. This firmware replaced the stock partition table at `0x8000`, so writing only a stock app at `0x10000` would leave this firmware's `0x1F0000` table on the device, which is not stock. The full backup puts back the bootloader, the stock 1 MB table, NVS and the stock app in one write.
+Restore the whole image at `0x0`, not just the stock app. This firmware replaced the stock partition table at `0x8000`, so writing only a stock app at `0x10000` would leave this firmware's two-slot table on the device, which is not stock. The full backup puts back the bootloader, the stock 1 MB table, NVS and the stock app in one write.
 
-The official MR Updater can also return a Chromatic to current stock firmware. Downloads: https://modretro.com/pages/downloads. That updater installs ModRetro's latest stock image. It does not restore your backup file.
+The official MR Updater can also return a Chromatic to current stock firmware: https://support.modretro.com/en_us/chromatic-firmware-updater-ryhoYnzCx (downloads: https://modretro.com/pages/downloads). That updater installs ModRetro's latest stock image. It does not restore your backup file.
+
+Step-by-step reinstall, backup restore, back-to-stock, and key backup: [docs/REINSTALL.md](docs/REINSTALL.md).
 
 ## 5. Configure Wi-Fi
 
@@ -280,16 +295,84 @@ sh tests/run_host.sh
 
 That compiles `grok_text` with the host `cc` and checks the proxy's reply parser with no network.
 
+### Preset questions on the handheld
+
+Open the Grok screen (A on the System tab GROK row, or Start while the menu is open). It starts on a list of 8 questions. **Up/Down** picks, **A** asks, **B** goes back. On the reply, Up/Down pages, A asks again, B returns to the list, Start closes.
+
+The 8 built-in questions are in flash. You can replace any slot; custom text is saved in NVS (`grokcfg/q1`..`q8`) and marked `*` in the list:
+
+```text
+grok q list
+grok q set 3 "What should I play tonight?"
+grok q clear 3          (back to the built-in question)
+grok q ask 3            (same as picking it on the handheld)
+```
+
+### Direct mode (no proxy, BLE off)
+
+The device can call `https://api.x.ai/v1/responses` itself (model `grok-4.7`, same request as `companion/proxy.py`). TLS only fits in RAM with Bluetooth stopped, so direct mode does not start BLE and gives its controller RAM to the heap. Measured on a Chromatic: about 84 KB internal heap free after BLE stops, and a low point of about 10.4 KB during the call.
+
+```text
+grok mode direct
+grok key set <xAI API key>     (echoes as ****)
+grok status                    (shows xai_key=set, never the key)
+grok mem
+grok ask "hello"
+```
+
+`grok mode proxy` and a reboot bring BLE back. `grok key clear` erases the key. The key is stored **unencrypted** in NVS (`grokcfg/xaikey`); anyone with the device and esptool can read it. Use a low-limit key you can revoke.
+
+### Wireless updates (`grok update`)
+
+```text
+grok update                    (latest GitHub release asset chromatic_grok.signed.bin)
+grok update https://...        (any https URL, at most 200 characters)
+grok update status             (running slot, version, other slot, PENDING/VALID, last result, key id)
+grok update rollback           (boot the other slot now, if it holds a valid image)
+grok update hold               (test hook: the next update will not confirm and rolls back)
+```
+
+The default URL is
+`https://github.com/pileofflapjacks1/chromatic-grok/releases/latest/download/chromatic_grok.signed.bin`,
+so a release needs an asset named exactly **`chromatic_grok.signed.bin`**. "Latest" skips pre-releases.
+
+What happens: BLE stops (as in direct mode; it comes back after the reboot), the image streams over TLS (CA bundle; GitHub's redirect to release-assets.githubusercontent.com is followed) into the inactive slot in 2 KB pieces, erasing one sector at a time. The first bytes must be a `chromatic_grok` app image. `esp_ota_end()` then checks the image hash and its ECDSA P-256 signature against the public key built into the running firmware. Only if that passes is the boot slot switched and the chip restarted. A rejected or broken download leaves the running firmware and the boot slot alone.
+
+**Signature scheme.** ESP-IDF "signed apps without hardware secure boot" (`CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT`, ECDSA scheme, `CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT`), with build-time signing off and only the public key (`CONFIG_SECURE_BOOT_VERIFICATION_KEY`, raw 64 bytes) in the build. Checked in the ESP-IDF v5.3.1 source: the app side compiles only `secure_boot_v1/secure_boot_signatures_app.c` (mbedTLS ECDSA over the embedded key, no eFuse access); the eFuse-burning `secure_boot.c` is bootloader-only and only with hardware secure boot enabled; `SECURE_SIGNED_ON_BOOT` is off, so nothing about the bootloader changes and the device's bootloader is never reflashed. A USB flash needs no signature.
+
+**Rollback.** The stock bootloader is not built with `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`, so it ignores the "pending verify" state. Rollback lives in the app (NVS namespace `grokupd`):
+- The new image boots as a trial. It is confirmed once Wi-Fi has an IP and the console is running.
+- No confirmation within 90 s: the app switches back to the previous slot and restarts.
+- A trial that resets before confirming counts a boot; the 3rd unconfirmed boot switches back.
+- Going back to a USB-flashed (unsigned) ota_0 resets otadata, which makes the stock bootloader boot ota_0.
+- If the new image is not a valid app, the bootloader itself falls back to the other slot and the app records "did not boot".
+- **Not covered:** an image that crashes or hangs *before* the boot check at the start of `app_main` (it reboot-loops or hangs without counting), or one that hangs later with no watchdog reset. Recovery is then a USB flash ([docs/REINSTALL.md](docs/REINSTALL.md)). The signature check means only images the key holder signed can get that far.
+
+**Signing a release** (Windows, ESP-IDF 5.3 command prompt, on the key holder's PC; the private key never leaves it):
+
+```bat
+rem once: create the key (back it up in a password manager)
+espsecure.py generate_signing_key --version 1 chromatic_signing_key.pem
+rem once: print the PUBLIC key to paste into the repo (keys/)
+python -c "from cryptography.hazmat.primitives import serialization as s;k=s.load_pem_private_key(open('chromatic_signing_key.pem','rb').read(),None);print(k.public_key().public_bytes(s.Encoding.PEM,s.PublicFormat.SubjectPublicKeyInfo).decode())"
+rem each release: sign the built app, then upload chromatic_grok.signed.bin as the release asset
+espsecure.py sign_data --version 1 --keyfile chromatic_signing_key.pem --output chromatic_grok.signed.bin chromatic_grok.bin
+```
+
+The firmware trusts exactly one key: Joe's release key, `keys/joe_signing.pub.pem` (embedded as `keys/joe_signature_verification_key.bin`, made with `tools/pubkey_pem_to_bin.py`). `grok update status` prints its id `13b86339c36256da` (start of the SHA-256 of the DER public key) and "(Joe release key)". A device trusts only the key built into the firmware it runs, so a build with a new key must be flashed over USB once.
+
 ## Known limitations
 
 - This tree builds and links with ESP-IDF v5.3 (IRAM 14.3 KB free, static DRAM 11.3 KB free, app 26% free), but it has not been flashed or tested on a Chromatic here. Build it locally before trusting a flash. NimBLE include paths and Kconfig names follow ESP-IDF v5.3; if `idf.py` disagrees, the build log is the source of truth.
 - Light sleep is off by default, so the battery will not last as long as stock.
-- The font is ASCII. Other bytes become `?`. Replies are capped at 640 characters, 32 columns, and 12 lines per page.
-- One HTTP request at a time. The device speaks plain `http://` only, with no TLS and no API key.
+- The font is ASCII. Other bytes become `?`. Replies are capped at 640 characters, 20 columns, and 13 lines per page.
+- One request at a time. Proxy mode speaks plain `http://`. Direct mode uses TLS to api.x.ai with BLE off; the xAI key is then on the device, unencrypted.
 - The proxy uses a shared bearer token over plain HTTP. Anyone who can sniff the LAN can see the token; rotate it if the network is shared.
 - BLE pairing was written against the NimBLE v5.3 API and has not been tested with a real central here.
 - BLE lines are about 240 bytes. The serial console splits at 32 arguments unless you quote the prompt.
-- There is no PSRAM. Wi-Fi and BLE buffers are reduced. AMPDU and HTTPS are off.
+- There is no PSRAM. Wi-Fi and BLE buffers are reduced and AMPDU is off. HTTPS only fits with BLE stopped (direct mode).
+- The serial console is a minimal line reader (Backspace, Ctrl-U, Ctrl-C, Up arrow for the last command). No TAB completion or longer history.
+- Wireless-update rollback is done by the app, not the bootloader (the stock bootloader has no rollback support). An image that crashes before the check at the start of `app_main` is not caught; see [Wireless updates](#wireless-updates-grok-update).
 - The fourth System row (FIRMWARE, PLAYER #, optional SERIAL #, then GROK) can sit near the battery icon.
 - QIO flash mode is not used. Do not turn it on. Those pins belong to the FPGA UART.
 - Select cannot be a chord. The stock driver drops it.
@@ -298,11 +381,14 @@ That compiles `grok_text` with the host `cc` and checks the proxy's reply parser
 ## Layout
 
 ```text
-components/grok/     Wi-Fi, BLE, HTTP, screen overlay, commands
+components/grok/     Wi-Fi, BLE, HTTP/HTTPS, serial console, screen overlay, commands
 companion/proxy.py   LAN proxy. Holds XAI_API_KEY.
 companion/chromatic_grok.py
 docs/PROTOCOL.md
-partitions.csv       NVS stays at 0x9000. Factory app is 0x1F0000 (stock: 1 MB).
+docs/REINSTALL.md    USB reinstall, backup restore, back to stock, signing-key backup
+keys/                Joe's release public key only (PEM + raw 64-byte form)
+tools/pubkey_pem_to_bin.py  Public PEM -> raw key for CONFIG_SECURE_BOOT_VERIFICATION_KEY
+partitions.csv       NVS stays at 0x9000. Two OTA app slots of 0x1F0000 (stock: one 1 MB factory app).
 ```
 
 Stock behavior outside that link is intentionally untouched: FPGA UART, button edges, the settings namespace, and the menu bitmaps.

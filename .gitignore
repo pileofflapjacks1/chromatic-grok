@@ -10,3 +10,7 @@ web/.output/
 web/.tanstack/
 web/.env
 *.bin
+# Signing keys: private keys never go in git. Only the public halves in keys/.
+*.pem
+!keys/*.pub.pem
+!keys/*signature_verification_key.bin

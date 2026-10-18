@@ -208,6 +208,201 @@ bool grok_store_has_token(void)
     return has;
 }
 
+static bool xai_key_ok(const char *key)
+{
+    size_t len;
+
+    if (key == NULL)
+    {
+        return false;
+    }
+    len = strlen(key);
+    if ((len < GROK_XAI_KEY_MIN) || (len > GROK_XAI_KEY_MAX))
+    {
+        return false;
+    }
+    for (size_t i = 0; i < len; i++)
+    {
+        if ((key[i] <= ' ') || (key[i] > '~'))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* The xAI key lives only in NVS ("xaikey"). It is not cached in RAM, never
+ * printed, and callers zero their copy after use. */
+bool grok_store_set_xai_key(const char *key)
+{
+    esp_err_t a;
+    esp_err_t b;
+
+    if (!xai_key_ok(key) || !store_open())
+    {
+        return false;
+    }
+    lock();
+    a = nvs_set_str(s_nvs, "xaikey", key);
+    b = nvs_commit(s_nvs);
+    unlock();
+    return (a == ESP_OK) && (b == ESP_OK);
+}
+
+void grok_store_clear_xai_key(void)
+{
+    if (!store_open())
+    {
+        return;
+    }
+    lock();
+    nvs_erase_key(s_nvs, "xaikey");
+    nvs_commit(s_nvs);
+    unlock();
+}
+
+bool grok_store_get_xai_key(char *out, size_t out_cap)
+{
+    size_t len = out_cap;
+    esp_err_t err;
+
+    if ((out == NULL) || (out_cap == 0))
+    {
+        return false;
+    }
+    out[0] = '\0';
+    if (!store_open())
+    {
+        return false;
+    }
+    lock();
+    err = nvs_get_str(s_nvs, "xaikey", out, &len);
+    unlock();
+    if (err != ESP_OK)
+    {
+        memset(out, 0, out_cap);
+        return false;
+    }
+    return out[0] != '\0';
+}
+
+bool grok_store_has_xai_key(void)
+{
+    size_t len = 0;
+    esp_err_t err;
+
+    if (!store_open())
+    {
+        return false;
+    }
+    lock();
+    err = nvs_get_str(s_nvs, "xaikey", NULL, &len);
+    unlock();
+    return (err == ESP_OK) && (len > 1);
+}
+
+bool grok_store_set_mode(GrokMode_t mode)
+{
+    esp_err_t a;
+    esp_err_t b;
+
+    if (!store_open())
+    {
+        return false;
+    }
+    lock();
+    a = nvs_set_u8(s_nvs, "mode", (uint8_t)mode);
+    b = nvs_commit(s_nvs);
+    unlock();
+    return (a == ESP_OK) && (b == ESP_OK);
+}
+
+GrokMode_t grok_store_get_mode(void)
+{
+    uint8_t v = GROK_MODE_PROXY;
+
+    if (!store_open())
+    {
+        return GROK_MODE_PROXY;
+    }
+    lock();
+    if (nvs_get_u8(s_nvs, "mode", &v) != ESP_OK)
+    {
+        v = GROK_MODE_PROXY;
+    }
+    unlock();
+    return (v == GROK_MODE_DIRECT) ? GROK_MODE_DIRECT : GROK_MODE_PROXY;
+}
+
+/* Custom preset questions: NVS keys "q1".."q8". Read on demand, not cached. */
+static void question_key(int idx, char key[4])
+{
+    key[0] = 'q';
+    key[1] = (char)('1' + idx);
+    key[2] = '\0';
+}
+
+bool grok_store_get_question(int idx, char *out, size_t out_cap)
+{
+    char key[4];
+    size_t len = out_cap;
+    esp_err_t err;
+
+    if ((out == NULL) || (out_cap == 0))
+    {
+        return false;
+    }
+    out[0] = '\0';
+    if ((idx < 0) || (idx >= GROK_PICK_COUNT) || !store_open())
+    {
+        return false;
+    }
+    question_key(idx, key);
+    lock();
+    err = nvs_get_str(s_nvs, key, out, &len);
+    unlock();
+    if (err != ESP_OK)
+    {
+        out[0] = '\0';
+        return false;
+    }
+    return out[0] != '\0';
+}
+
+bool grok_store_set_question(int idx, const char *text)
+{
+    char key[4];
+    esp_err_t a;
+    esp_err_t b;
+
+    if ((idx < 0) || (idx >= GROK_PICK_COUNT) || (text == NULL) || (text[0] == '\0') ||
+        (strlen(text) > GROK_PROMPT_MAX) || !store_open())
+    {
+        return false;
+    }
+    question_key(idx, key);
+    lock();
+    a = nvs_set_str(s_nvs, key, text);
+    b = nvs_commit(s_nvs);
+    unlock();
+    return (a == ESP_OK) && (b == ESP_OK);
+}
+
+void grok_store_clear_question(int idx)
+{
+    char key[4];
+
+    if ((idx < 0) || (idx >= GROK_PICK_COUNT) || !store_open())
+    {
+        return;
+    }
+    question_key(idx, key);
+    lock();
+    nvs_erase_key(s_nvs, key);
+    nvs_commit(s_nvs);
+    unlock();
+}
+
 static void fill_config(wifi_config_t *cfg)
 {
     memset(cfg, 0, sizeof(*cfg));

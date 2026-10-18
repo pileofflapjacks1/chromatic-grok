@@ -1,6 +1,7 @@
 /* Host checks for the portable Grok text helpers. Not part of the ESP-IDF build.
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
+#include "grok_pick.h"
 #include "grok_text.h"
 
 #include <stdio.h>
@@ -100,11 +101,111 @@ static void test_fold(void)
     expect_true("fold", strcmp(text, "caf?") == 0);
 }
 
+static void test_responses(void)
+{
+    char out[128];
+    char red[128];
+    /* Shape of an xAI Responses API body: text precedes "usage". */
+    const char *resp =
+        "{\"id\":\"r1\",\"object\":\"response\",\"text\":{\"format\":{\"type\":\"text\"}},"
+        "\"output\":[{\"type\":\"reasoning\",\"summary\":[]},"
+        "{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\","
+        "\"text\":\"Hi {there}\\nok\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":9}}";
+    const char *text_first =
+        "{\"output\":[{\"content\":[{\"annotations\":[],\"text\":\"later\",\"type\":\"output_text\"}]}]}";
+    const char *convenience = "{\"output_text\":\"short\",\"output\":[]}";
+    const char *xai_err = "{\"code\":\"bad\",\"error\":\"Incorrect API key provided: xai-AbC123_def-9. See docs.\"}";
+    const char *oai_err = "{\"error\":{\"message\":\"model not found\",\"type\":\"x\"}}";
+
+    expect_true("resp", grok_text_responses_text(resp, out, sizeof(out)));
+    expect_true("resp text", strcmp(out, "Hi {there}\nok") == 0);
+    expect_true("text first", grok_text_responses_text(text_first, out, sizeof(out)));
+    expect_true("text first text", strcmp(out, "later") == 0);
+    expect_true("convenience", grok_text_responses_text(convenience, out, sizeof(out)));
+    expect_true("convenience text", strcmp(out, "short") == 0);
+    expect_true("no text", !grok_text_responses_text("{\"output\":[]}", out, sizeof(out)));
+    expect_true("truncated", !grok_text_responses_text("{\"content\":[{\"type\":\"output_text\",\"text\":\"cut", out, sizeof(out)));
+
+    expect_true("xai err", grok_text_responses_error(xai_err, out, sizeof(out)));
+    grok_text_redact(out, NULL, red, sizeof(red));
+    expect_true("xai err redacted", strcmp(red, "Incorrect API key provided: [redacted]. See docs.") == 0);
+    expect_true("oai err", grok_text_responses_error(oai_err, out, sizeof(out)));
+    expect_true("oai err text", strcmp(out, "model not found") == 0);
+
+    grok_text_redact("k=SECRETKEY123 end", "SECRETKEY123", red, sizeof(red));
+    expect_true("redact secret", strcmp(red, "k=[redacted] end") == 0);
+    grok_text_redact("xai-abcdefghijklmnop", NULL, red, 6);
+    expect_true("redact small cap", strcmp(red, "[reda") == 0);
+    expect_true("redact no key leak", strstr(red, "abc") == NULL);
+}
+
+static int secret(const char *typed)
+{
+    return grok_text_secret_at(typed, strlen(typed));
+}
+
+static void test_secret(void)
+{
+    expect_true("key prefix", !secret("grok key set"));
+    expect_true("key first char", secret("grok key set "));
+    expect_true("key mid", secret("grok key set xai-ab"));
+    expect_true("key spaces", secret("  grok   key\tset  x"));
+    expect_true("key clear", !secret("grok key clear "));
+    expect_true("token", secret("grok token set "));
+    expect_true("wifi ssid shown", !secret("wifi set MyNet"));
+    expect_true("wifi pass hidden", secret("wifi set MyNet "));
+    expect_true("ask shown", !secret("grok ask what is up"));
+    expect_true("partial word", !secret("grok key settings"));
+    expect_true("other", !secret("grok keys set x"));
+}
+
+static void test_pick(void)
+{
+    char row[32];
+    int idx = -1;
+
+    for (int i = 0; i < GROK_PICK_COUNT; i++)
+    {
+        const char *q = grok_pick_builtin(i);
+        expect_true("builtin set", (q != NULL) && (q[0] != '\0'));
+        expect_true("builtin fits prompt", (q != NULL) && (strlen(q) <= GROK_PROMPT_MAX));
+        for (const char *p = q; (p != NULL) && (*p != '\0'); p++)
+        {
+            expect_true("builtin ascii", (*p >= 0x20) && (*p <= 0x7e));
+        }
+    }
+    expect_true("builtin range lo", grok_pick_builtin(-1) == NULL);
+    expect_true("builtin range hi", grok_pick_builtin(GROK_PICK_COUNT) == NULL);
+
+    expect_true("step down", grok_pick_step(0, 1) == 1);
+    expect_true("step wrap down", grok_pick_step(GROK_PICK_COUNT - 1, 1) == 0);
+    expect_true("step wrap up", grok_pick_step(0, -1) == GROK_PICK_COUNT - 1);
+    expect_true("step big", grok_pick_step(3, -(GROK_PICK_COUNT * 2 + 1)) == 2);
+
+    expect_true("slot 1", grok_pick_parse_slot("1", &idx) && (idx == 0));
+    expect_true("slot 8", grok_pick_parse_slot("8", &idx) && (idx == 7));
+    expect_true("slot 0", !grok_pick_parse_slot("0", &idx));
+    expect_true("slot 9", !grok_pick_parse_slot("9", &idx));
+    expect_true("slot 10", !grok_pick_parse_slot("10", &idx));
+    expect_true("slot empty", !grok_pick_parse_slot("", &idx));
+
+    grok_pick_format_row(row, sizeof(row), 0, "Tell me a fun fact.", true, false, GROK_TEXT_COLS);
+    expect_true("row sel", strcmp(row, ">1 Tell me a fun fac") == 0);
+    expect_true("row width", strlen(row) == GROK_TEXT_COLS);
+    grok_pick_format_row(row, sizeof(row), 7, "Hi", false, true, GROK_TEXT_COLS);
+    expect_true("row custom", strcmp(row, " 8*Hi") == 0);
+    grok_pick_format_row(row, 6, 2, "abcdef", false, false, GROK_TEXT_COLS);
+    expect_true("row small cap", strcmp(row, " 3 ab") == 0);
+}
+
 int main(void)
 {
     test_wrap();
     test_json();
     test_fold();
+    test_responses();
+    test_secret();
+    test_pick();
     if (g_failed != 0)
     {
         fprintf(stderr, "%d failed\n", g_failed);

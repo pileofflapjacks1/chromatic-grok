@@ -4,7 +4,7 @@
 # Espressif IoT Development Framework (ESP-IDF) 5.3.0 Project Minimal Configuration
 #
 CONFIG_APP_PROJECT_VER_FROM_CONFIG=y
-CONFIG_APP_PROJECT_VER="0.14.0-grok"
+CONFIG_APP_PROJECT_VER="0.15.0-grok"
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_CHROMATIC_FW_VER_STR="4.6g"
 CONFIG_CONSOLE_SORTED_HELP=y
@@ -15,6 +15,8 @@ CONFIG_LV_USE_ASSERT_STYLE=y
 CONFIG_LV_SPRINTF_USE_FLOAT=y
 CONFIG_LV_FONT_MONTSERRAT_26=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
+# Grok reply overlay font: legible 8x8 monospace, 1 bpp, in flash.
+CONFIG_LV_FONT_UNSCII_8=y
 
 # GPIO9/GPIO10 are the FPGA UART. QIO flash mode uses those pins.
 CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
@@ -46,9 +48,23 @@ CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=16
 # CONFIG_ESP_WIFI_AMPDU_TX_ENABLED is not set
 # CONFIG_ESP_WIFI_AMPDU_RX_ENABLED is not set
 
-# The device speaks plain HTTP to a LAN proxy. The proxy holds the API key.
-# CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS is not set
-# CONFIG_MBEDTLS_CERTIFICATE_BUNDLE is not set
+# Proxy mode speaks plain HTTP to a LAN proxy that holds the API key.
+# HTTPS spike: "grok mode direct" calls https://api.x.ai with BLE stopped.
+CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y
+# Common-CA bundle (~40 roots, in flash). api.x.ai chains to GTS Root R4,
+# cross-signed by GlobalSign Root CA; both are in the common bundle.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_CMN=y
+# TLS heap: allocate record buffers only while in use, free the CA chain and
+# config after the handshake. 16 KB in (server records can be that big),
+# 4 KB out (our request is ~1.5 KB).
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
+CONFIG_MBEDTLS_ASYMMETRIC_CONTENT_LEN=y
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=4096
+CONFIG_MBEDTLS_TLS_CLIENT_ONLY=y
 
 CONFIG_LWIP_MAX_SOCKETS=8
 
@@ -62,3 +78,21 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 # Wi-Fi TX/RX hot paths stay in flash. Lower peak throughput, which a short
 # HTTP request does not need.
 # CONFIG_ESP_WIFI_IRAM_OPT is not set
+
+# --- Wireless updates ("grok update"). ESP-IDF "signed apps without secure
+# boot", ECDSA P-256 (Secure Boot V1 signature block). Only the app checks
+# signatures, in esp_ota_end() before the boot slot is switched. Nothing is
+# signed at build time and no private key is used by the build: releases
+# are signed afterwards with espsecure.py sign_data --version 1. The stock
+# bootloader is untouched (no boot-time check), no eFuse is written.
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_APPS_ECDSA_SCHEME=y
+# CONFIG_SECURE_SIGNED_ON_BOOT_NO_SECURE_BOOT is not set
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+# CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES is not set
+# Joe's release key: raw X||Y of keys/joe_signing.pub.pem (made with
+# tools/pubkey_pem_to_bin.py). The private key exists only on Joe's PC.
+# Key id (SHA-256 of the DER public key) 13b86339c36256da...
+CONFIG_SECURE_BOOT_VERIFICATION_KEY="keys/joe_signature_verification_key.bin"
+# Rollback is done in the app (grok_update.c); the stock bootloader was not
+# built with CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE.

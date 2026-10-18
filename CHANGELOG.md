@@ -1,10 +1,25 @@
-## Unreleased
+## 0.15.0-grok (draft, unreleased)
 
 ### Added
+- `grok mode direct|proxy`: direct mode calls `https://api.x.ai/v1/responses` from the device (model `grok-4.7`) with BLE stopped and its controller RAM released. Proxy mode is unchanged.
+- `grok key set <key>` / `grok key clear`: xAI key in its own NVS slot (`grokcfg/xaikey`), separate from the proxy token. Stored unencrypted.
+- `grok mem`: internal and DMA heap free / largest block / minimum, and the calling task's free stack.
+- Preset question picker on the Grok screen: Up/Down picks, A asks, B goes back. 8 built-in questions in flash; `grok q list`, `grok q set <n> <text>`, `grok q clear <n>`, `grok q ask <n>` (custom text in NVS `grokcfg/q1`..`q8`).
+- Two-slot OTA partition layout (ota_0 `0x10000`, ota_1 `0x200000`, both `0x1F0000`; otadata `0x3F0000`).
+- `grok update [url]`: wireless update into the inactive slot over HTTPS (default: latest GitHub release asset `chromatic_grok.signed.bin`). Images must carry an ECDSA P-256 signature (`espsecure.py sign_data --version 1`) for the public key built into the firmware; ESP-IDF "signed apps without secure boot", app-side check only, stock bootloader and eFuses untouched.
+- App-level rollback: a new image runs as a trial and is confirmed once Wi-Fi and the console are up; otherwise it switches back after 90 s or on the 3rd unconfirmed boot. `grok update status`, `grok update rollback`, `grok update hold` (test hook).
+- `docs/REINSTALL.md`: USB reinstall, backup restore, back to ModRetro firmware, signing-key backup.
+- `keys/joe_signing.pub.pem`: the only trusted update key (Joe's release key, id `13b86339c36256da`). Public keys only in git. `tools/pubkey_pem_to_bin.py` converts a public PEM to the raw form the build embeds.
 - Browser companion in `web/`. It asks xAI from the server and sends `grok show` over USB. A local, editable Grok Bot list picks the voice for the next question.
 
 ### Changed
-- README flashing docs: every esptool command uses `-b 115200` (the FPGA's USB CDC bridge, `0x374E:0x0101`, runs 115200 only). The first flash writes the partition table at `0x8000` and the app at `0x10000` with an explicit esptool command; `idf.py flash` also rewrites the bootloader at `0x1000`. Restore writes the full 4 MB backup at `0x0`.
+- App version `0.15.0-grok` (`fwversion`). Menu firmware string stays `4.6g`.
+- Grok reply overlay uses the 8x8 `unscii_8` font (20 columns) so text is legible.
+- The serial console is a small line reader instead of the linenoise REPL. Secrets typed after `grok key set`, `grok token set` and `wifi set <ssid>` echo as `*` and are never kept for Up-arrow recall. No TAB completion or multi-entry history.
+- README flashing docs: every esptool command uses `-b 115200` (the FPGA's USB CDC bridge, `0x374E:0x0101`, runs 115200 only). The first flash writes the partition table at `0x8000`, the app at `0x10000` and blank otadata at `0x3F0000` with an explicit esptool command; `idf.py flash` also rewrites the bootloader at `0x1000`. Restore writes the full 4 MB backup at `0x0`.
+
+### Fixed
+- `ble: adv fields failed (30)` when direct mode stopped BLE: advertising is no longer restarted while the host is stopping.
 
 ## 0.14.0-grok
 

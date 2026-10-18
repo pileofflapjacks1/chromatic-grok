@@ -1,4 +1,5 @@
-/* Modified by pileofflapjacks1, 2026: start the Grok link and enlarge the console task stack.
+/* Modified by pileofflapjacks1, 2026: start the Grok link, enlarge the console task stack,
+ * and use the Grok console (masked secret echo) instead of the linenoise REPL.
  * Original: ModRetro oss-chromatic-console-mcu v4.6 (63ed3b6), GPL-3.0.
  */
 #include <stdio.h>
@@ -228,13 +229,13 @@ static void persist_storage_init(void)
     }
 }
 
-static esp_console_repl_t *pRepl = NULL;
 static esp_console_repl_config_t ReplConfig = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
 static esp_console_dev_uart_config_t ReplHWConfig = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
 
 void app_main(void)
 {
     persist_storage_init();
+    Grok_UpdateBootCheck();
     Mutex_Init();
 
     // Set up the system management UART to/from the FPGA
@@ -352,10 +353,12 @@ void app_main(void)
     ReplHWConfig.rx_gpio_num = GPIO_NUM_35;
     ReplHWConfig.tx_gpio_num = GPIO_NUM_36;
 
-    ESP_ERROR_CHECK(esp_console_new_repl_uart(&ReplHWConfig, &ReplConfig, &pRepl));
+    // Grok console: same UART setup as esp_console_new_repl_uart, but masks
+    // secrets (grok key set, grok token set, wifi set) while they are typed.
+    ESP_ERROR_CHECK(Grok_ConsoleInit(&ReplHWConfig, &ReplConfig));
     esp_console_register_help_command();
     // All commands must be registered prior to starting the REPL
-    ESP_ERROR_CHECK(esp_console_start_repl(pRepl));
+    ESP_ERROR_CHECK(Grok_ConsoleStart());
     Grok_Start();
 
     vTaskDelay( pdMS_TO_TICKS(2000) );

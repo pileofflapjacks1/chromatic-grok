@@ -39,6 +39,7 @@
  * declare it the same way. */
 void ble_store_config_init(void);
 
+#include "esp_bt.h"
 #include "esp_err.h"
 #include "esp_random.h"
 #include "freertos/FreeRTOS.h"
@@ -70,6 +71,9 @@ static uint8_t s_own_addr_type;
 static bool s_started;
 static bool s_advertising;
 static bool s_callout_ready;
+static bool s_released;
+/* Set by grok_ble_stop() before the host stops; read on the host task. */
+static volatile bool s_stopping;
 static SemaphoreHandle_t s_lock;
 static struct ble_npl_callout s_tx_co;
 
@@ -304,6 +308,14 @@ static void start_adv(void)
     const char *name;
     int rc;
 
+    /* ble_hs_stop() preempts advertising and reports ADV_COMPLETE (and
+     * DISCONNECT for a live link) while the host is already STOPPING. A
+     * restart from those events fails with BLE_HS_EDISABLED (30). */
+    if (s_stopping)
+    {
+        s_advertising = false;
+        return;
+    }
     if (ble_gap_adv_active())
     {
         s_advertising = true;
@@ -521,6 +533,68 @@ bool grok_ble_start(void)
     return true;
 }
 
+bool grok_ble_released(void)
+{
+    return s_released;
+}
+
+/* Direct HTTPS mode. Stop the host (this ends any connection and advertising),
+ * deinit NimBLE and the controller, then return the controller's static RAM to
+ * the heap. Runs on the grok radio task, never on the NimBLE host task. */
+bool grok_ble_stop(void)
+{
+    esp_err_t err;
+    int rc;
+
+    if (s_released)
+    {
+        return true;
+    }
+    if (s_started)
+    {
+        s_stopping = true;
+        lock();
+        s_callout_ready = false;
+        unlock();
+        ble_npl_callout_stop(&s_tx_co);
+        /* Stop advertising ourselves first. ble_gap_adv_stop() does not
+         * raise ADV_COMPLETE, so nothing tries to re-advertise. */
+        if (ble_gap_adv_active())
+        {
+            ble_gap_adv_stop();
+        }
+        s_advertising = false;
+
+        rc = nimble_port_stop();
+        if (rc != 0)
+        {
+            printf("ble: stop failed (%d)\n", rc);
+            s_stopping = false;
+            return false;
+        }
+        ble_npl_callout_deinit(&s_tx_co);
+        err = nimble_port_deinit();
+        if (err != ESP_OK)
+        {
+            printf("ble: deinit failed (%s)\n", esp_err_to_name(err));
+            return false;
+        }
+        s_started = false;
+        s_advertising = false;
+        s_conn = BLE_HS_CONN_HANDLE_NONE;
+    }
+
+    err = esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
+    if (err != ESP_OK)
+    {
+        printf("ble: stopped; controller ram not released (%s)\n", esp_err_to_name(err));
+        return true;
+    }
+    s_released = true;
+    printf("ble: stopped and controller ram released until reboot\n");
+    return true;
+}
+
 void grok_ble_unpair(void)
 {
     int rc;
@@ -603,6 +677,16 @@ void grok_ble_format(char *out, size_t out_cap)
 }
 
 #else
+
+bool grok_ble_stop(void)
+{
+    return true;
+}
+
+bool grok_ble_released(void)
+{
+    return true;
+}
 
 bool grok_ble_start(void)
 {

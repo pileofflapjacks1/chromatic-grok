@@ -5,6 +5,7 @@
 #include "grok.h"
 
 #include "grok_internal.h"
+#include "grok_ota_util.h"
 
 #include "esp_console.h"
 #include "freertos/FreeRTOS.h"
@@ -16,7 +17,14 @@
 #include <stdio.h>
 #include <string.h>
 
+typedef enum {
+    GROK_JOB_ASK = 0,
+    GROK_JOB_UPDATE,   /* prompt holds the https URL */
+    GROK_JOB_ROLLBACK,
+} GrokJobKind_t;
+
 typedef struct GrokJob {
+    uint8_t kind;
     char prompt[GROK_PROMPT_MAX + 1];
 } GrokJob_t;
 
@@ -255,6 +263,129 @@ static int split_args(char *line, char **argv, int max)
     return argc;
 }
 
+bool grok_question_get(int idx, char *out, size_t out_cap, bool *custom)
+{
+    const char *builtin = grok_pick_builtin(idx);
+
+    if (custom != NULL)
+    {
+        *custom = false;
+    }
+    if ((out == NULL) || (out_cap == 0) || (builtin == NULL))
+    {
+        return false;
+    }
+    if (grok_store_get_question(idx, out, out_cap))
+    {
+        if (custom != NULL)
+        {
+            *custom = true;
+        }
+        return true;
+    }
+    snprintf(out, out_cap, "%s", builtin);
+    return true;
+}
+
+static void cmd_q(int argc, char **argv)
+{
+    char text[GROK_PROMPT_MAX + 1];
+    int idx = 0;
+
+    if ((argc == 3) && (strcmp(argv[2], "list") == 0))
+    {
+        for (int i = 0; i < GROK_PICK_COUNT; i++)
+        {
+            bool custom = false;
+
+            grok_question_get(i, text, sizeof(text), &custom);
+            printf("q%d%s %s\n", i + 1, custom ? "*" : " ", text);
+        }
+        grok_say("(* = custom, saved on the device)\n");
+        return;
+    }
+    if ((argc >= 5) && (strcmp(argv[2], "set") == 0) && grok_pick_parse_slot(argv[3], &idx))
+    {
+        if (!join_from(argc, argv, 4, text, sizeof(text)) || (text[0] == '\0'))
+        {
+            grok_say("grok: question must be 1 to 200 characters\n");
+            return;
+        }
+        grok_say(grok_store_set_question(idx, text) ? "grok: question saved\n" : "grok: could not save question\n");
+        return;
+    }
+    if ((argc == 4) && (strcmp(argv[2], "clear") == 0) && grok_pick_parse_slot(argv[3], &idx))
+    {
+        grok_store_clear_question(idx);
+        grok_say("grok: question reset to built-in\n");
+        return;
+    }
+    if ((argc == 4) && (strcmp(argv[2], "ask") == 0) && grok_pick_parse_slot(argv[3], &idx))
+    {
+        grok_question_get(idx, text, sizeof(text), NULL);
+        grok_submit_prompt(text);
+        return;
+    }
+    grok_say("grok: q list | q set <1-8> <text> | q clear <1-8> | q ask <1-8>\n");
+}
+
+static bool submit_job(uint8_t kind, const char *text)
+{
+    GrokJob_t job;
+
+    if (s_jobs == NULL)
+    {
+        grok_publish("grok: radio is not up");
+        return false;
+    }
+    memset(&job, 0, sizeof(job));
+    job.kind = kind;
+    snprintf(job.prompt, sizeof(job.prompt), "%s", (text != NULL) ? text : "");
+    if (xQueueSend(s_jobs, &job, 0) != pdTRUE)
+    {
+        grok_publish("busy");
+        return false;
+    }
+    return true;
+}
+
+static void cmd_update(int argc, char **argv)
+{
+    const char *url = GROK_UPDATE_DEFAULT_URL;
+
+    if ((argc == 3) && (strcmp(argv[2], "status") == 0))
+    {
+        grok_update_status();
+        return;
+    }
+    if ((argc == 3) && (strcmp(argv[2], "rollback") == 0))
+    {
+        submit_job(GROK_JOB_ROLLBACK, NULL);
+        return;
+    }
+    if ((argc == 3) && (strcmp(argv[2], "hold") == 0))
+    {
+        grok_update_arm_hold();
+        return;
+    }
+    if (argc == 3)
+    {
+        url = argv[2];
+    }
+    else if (argc != 2)
+    {
+        grok_say("grok update [https-url] | status | rollback | hold\n");
+        return;
+    }
+    if (!grok_ota_url_ok(url, GROK_PROMPT_MAX + 1))
+    {
+        grok_say("update: url must be https:// and at most 200 characters\n");
+        return;
+    }
+    printf("update: queued. BLE turns off until the next reboot.\n");
+    submit_job(GROK_JOB_UPDATE, url);
+}
+
 static void wifi_usage(void)
 {
     grok_say("wifi: status | connect | disconnect | clear | set <ssid> <password>\n");
@@ -262,7 +393,7 @@ static void wifi_usage(void)
 
 static void grok_usage(void)
 {
-    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | ble unpair | page next|prev|N | ask <prompt> | show <text>\n");
+    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | q list|set <n> <text>|clear <n>|ask <n> | ble unpair | update [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
 }
 
 static void cmd_wifi(int argc, char **argv)
@@ -325,16 +456,18 @@ static void cmd_grok(int argc, char **argv)
         char wifi[32];
         char ble[16];
         char url[GROK_URL_MAX + 1];
-        char line[GROK_URL_MAX + 96];
+        char line[GROK_URL_MAX + 128];
 
         grok_wifi_format(wifi, sizeof(wifi));
         grok_ble_format(ble, sizeof(ble));
         grok_store_get_url(url, sizeof(url));
-        snprintf(line, sizeof(line), "grok: %s %s %s url=%s token=%s\n",
+        snprintf(line, sizeof(line), "grok: %s %s %s mode=%s url=%s token=%s xai_key=%s\n",
                  wifi, ble,
                  s_keep_awake ? "awake" : "light-sleep allowed",
+                 (grok_store_get_mode() == GROK_MODE_DIRECT) ? "direct" : "proxy",
                  (url[0] != '\0') ? url : "(unset)",
-                 grok_store_has_token() ? "set" : "unset");
+                 grok_store_has_token() ? "set" : "unset",
+                 grok_store_has_xai_key() ? "set" : "unset");
         grok_say(line);
         return;
     }
@@ -381,7 +514,12 @@ static void cmd_grok(int argc, char **argv)
                 grok_say("grok: token is too long\n");
                 return;
             }
-            grok_say(grok_store_set_token(argv[3]) ? "grok: token saved\n" : "grok: could not save token\n");
+            {
+                bool saved = grok_store_set_token(argv[3]);
+
+                memset(argv[3], 0, strlen(argv[3]));
+                grok_say(saved ? "grok: token saved\n" : "grok: could not save token\n");
+            }
             return;
         }
         if ((argc == 3) && (strcmp(argv[2], "clear") == 0))
@@ -391,6 +529,87 @@ static void cmd_grok(int argc, char **argv)
             return;
         }
         grok_usage();
+        return;
+    }
+    if (strcmp(argv[1], "key") == 0)
+    {
+        /* xAI API key for direct mode. Never echoed, logged or put in an
+         * error message. The serial console echoes it as '*' and keeps no
+         * history of it (grok_console.c); argv is zeroed here. */
+        if ((argc == 4) && (strcmp(argv[2], "set") == 0))
+        {
+            size_t len = strlen(argv[3]);
+            bool saved = false;
+
+            if ((len >= GROK_XAI_KEY_MIN) && (len <= GROK_XAI_KEY_MAX))
+            {
+                saved = grok_store_set_xai_key(argv[3]);
+            }
+            memset(argv[3], 0, len);
+            if ((len < GROK_XAI_KEY_MIN) || (len > GROK_XAI_KEY_MAX))
+            {
+                grok_say("grok: key must be 16 to 192 printable characters; not saved\n");
+                return;
+            }
+            grok_say(saved ? "grok: xai key saved\n" : "grok: could not save xai key\n");
+            return;
+        }
+        if ((argc == 3) && (strcmp(argv[2], "clear") == 0))
+        {
+            grok_store_clear_xai_key();
+            grok_say("grok: xai key cleared\n");
+            return;
+        }
+        for (int i = 3; i < argc; i++)
+        {
+            memset(argv[i], 0, strlen(argv[i]));
+        }
+        grok_say("grok: key set <key> | key clear\n");
+        return;
+    }
+    if (strcmp(argv[1], "mode") == 0)
+    {
+        if (argc == 2)
+        {
+            grok_say((grok_store_get_mode() == GROK_MODE_DIRECT) ? "grok: mode direct\n" : "grok: mode proxy\n");
+            return;
+        }
+        if ((argc == 3) && (strcmp(argv[2], "direct") == 0))
+        {
+            if (!grok_store_set_mode(GROK_MODE_DIRECT))
+            {
+                grok_say("grok: could not save mode\n");
+                return;
+            }
+            grok_say("grok: mode direct. ble stops before the next ask and stays off while mode is direct\n");
+            return;
+        }
+        if ((argc == 3) && (strcmp(argv[2], "proxy") == 0))
+        {
+            if (!grok_store_set_mode(GROK_MODE_PROXY))
+            {
+                grok_say("grok: could not save mode\n");
+                return;
+            }
+            grok_say(grok_ble_released() ? "grok: mode proxy. reboot to bring ble back\n" : "grok: mode proxy\n");
+            return;
+        }
+        grok_usage();
+        return;
+    }
+    if (strcmp(argv[1], "q") == 0)
+    {
+        cmd_q(argc, argv);
+        return;
+    }
+    if (strcmp(argv[1], "update") == 0)
+    {
+        cmd_update(argc, argv);
+        return;
+    }
+    if (strcmp(argv[1], "mem") == 0)
+    {
+        grok_mem_print("now");
         return;
     }
     if ((strcmp(argv[1], "ble") == 0) && (argc == 3) && (strcmp(argv[2], "unpair") == 0))
@@ -567,7 +786,14 @@ static void radio_task(void *arg)
     (void)arg;
 
     grok_wifi_start();
-    if (!grok_ble_start())
+    if (grok_store_get_mode() == GROK_MODE_DIRECT)
+    {
+        /* Direct HTTPS mode: never start BLE; give its RAM to the heap. */
+        printf("grok: mode direct, ble not started\n");
+        grok_ble_stop();
+        grok_mem_print("boot");
+    }
+    else if (!grok_ble_start())
     {
         printf("ble: continuing with serial and wifi\n");
     }
@@ -579,8 +805,16 @@ static void radio_task(void *arg)
         char token[GROK_TOKEN_MAX + 1];
         char reply[GROK_REPLY_MAX + 1];
 
-        if (xQueueReceive(s_jobs, &job, portMAX_DELAY) != pdTRUE)
+        if (xQueueReceive(s_jobs, &job, grok_update_trial() ? pdMS_TO_TICKS(1000) : portMAX_DELAY) != pdTRUE)
         {
+            grok_update_tick();
+            continue;
+        }
+        grok_update_tick();
+
+        if (job.kind == GROK_JOB_ROLLBACK)
+        {
+            grok_update_rollback_now();
             continue;
         }
 
@@ -594,6 +828,44 @@ static void radio_task(void *arg)
         if (!grok_wifi_is_connected())
         {
             grok_publish("no wifi");
+            continue;
+        }
+
+        if (job.kind == GROK_JOB_UPDATE)
+        {
+            /* Same as direct mode: TLS needs the BLE controller's RAM. */
+            if (!grok_ble_released() && !grok_ble_stop())
+            {
+                grok_publish("ble did not stop; reboot and retry");
+                continue;
+            }
+            grok_update_run(job.prompt);
+            continue;
+        }
+
+        if (grok_store_get_mode() == GROK_MODE_DIRECT)
+        {
+            char key[GROK_XAI_KEY_MAX + 1];
+
+            if (!grok_ble_released())
+            {
+                grok_mem_print("before ble stop");
+                if (!grok_ble_stop())
+                {
+                    grok_publish("ble did not stop; reboot and retry");
+                    continue;
+                }
+                grok_mem_print("after ble stop");
+            }
+            if (!grok_store_get_xai_key(key, sizeof(key)))
+            {
+                memset(key, 0, sizeof(key));
+                grok_publish("no xai key. grok key set <key>");
+                continue;
+            }
+            grok_https_ask(key, job.prompt, reply, sizeof(reply));
+            memset(key, 0, sizeof(key));
+            grok_publish(reply);
             continue;
         }
 
@@ -627,7 +899,7 @@ static void register_commands(void)
     };
     const esp_console_cmd_t grok_cmd = {
         .command = "grok",
-        .help = "Grok link: status, ask, show, url, page, open, close, retry, sleep",
+        .help = "Grok link: status, ask, q, show, url, token, mode, key, mem, update, page, open, close, retry, sleep",
         .hint = NULL,
         .func = &cmd_entry,
     };
