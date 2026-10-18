@@ -1,4 +1,20 @@
-## 0.15.0-grok (draft, unreleased)
+## 0.16.0-grok (draft, unreleased)
+
+### Added
+- Phone typing: `grok web on|off|status` (NVS `grokcfg/web`, off by default). A small HTTP server (`esp_http_server`, port 80, at most 2 sockets, 4 KB task stack) serves one inline page: PIN, question, Send. `POST /ask` queues the question on the same job queue as `grok ask` (direct or proxy mode); `GET /answer` returns `idle`/`wait`/`done` and the answer. The reply also shows on the Chromatic screen.
+- A random 6-digit PIN (`esp_random`) at every server start, shown on the Grok screen and in `grok web status`. Constant-time compare; 5 wrong PINs lock the page for 60 s. Busy returns 409. Questions are capped at 200 characters and folded to printable ASCII.
+- `grok mem` prints a `mem web:` line.
+- `tests/test_grok_web.c`: host tests for the PIN check, lockout, form parsing and sanitizing.
+
+### Changed
+- App version `0.16.0-grok`. Partition table, bootloader and signing key unchanged.
+- `CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024` (phone browsers send long header lines).
+- Direct mode and `grok update` stop the phone page's server for the TLS call and restart it afterwards (same PIN). In direct mode the page starts only after BLE has released its RAM.
+
+### Security
+- Plain HTTP on the LAN: the PIN, question and answer are not encrypted. The xAI key and proxy token are never sent to the phone.
+
+## 0.15.0-grok
 
 ### Added
 - `grok mode direct|proxy`: direct mode calls `https://api.x.ai/v1/responses` from the device (model `grok-4.7`) with BLE stopped and its controller RAM released. Proxy mode is unchanged.

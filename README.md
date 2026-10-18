@@ -322,6 +322,23 @@ grok ask "hello"
 
 `grok mode proxy` and a reboot bring BLE back. `grok key clear` erases the key. The key is stored **unencrypted** in NVS (`grokcfg/xaikey`); anyone with the device and esptool can read it. Use a low-limit key you can revoke.
 
+### Phone typing (`grok web`)
+
+Type a question on your phone; the answer shows on the Chromatic screen (same overlay as `grok ask`) and on the phone. Off by default.
+
+```text
+grok web on        (saved in NVS grokcfg/web; starts once Wi-Fi has an IP)
+grok web status    (http://<ip> and the 6-digit PIN)
+grok web off
+```
+
+At every start the Chromatic makes a new random 6-digit PIN and shows it with its address on the Grok screen (`grok web status` prints it too). On a phone on the same Wi-Fi, open `http://<ip>`, type the PIN and a question (1 to 200 characters, sent as printable ASCII), press Send. The page polls until the answer arrives. The question goes on the same queue as `grok ask`, so direct and proxy mode behave as usual (direct mode still stops BLE). One question at a time; a second one gets "busy" (409). 5 wrong PINs lock the page for 60 s.
+
+- **Plain HTTP.** The PIN, the question and the answer cross your LAN unencrypted. Use it only on a network you trust. The xAI key and proxy token are never sent to the phone.
+- Port 80, at most 2 open connections. The server and its buffers (about 8 KB of heap) exist only while it runs.
+- Direct mode: the page starts only after BLE has stopped (at boot in direct mode), and the server is stopped during each TLS call and restarted afterwards with the same PIN; the phone keeps polling and gets the answer when it is back. Proxy mode: it runs alongside BLE.
+- `grok mem` adds a `mem web:` line (running/paused/stopped, buffer size, server stack and the lowest free stack seen).
+
 ### Wireless updates (`grok update`)
 
 ```text
@@ -366,6 +383,7 @@ The firmware trusts exactly one key: Joe's release key, `keys/joe_signing.pub.pe
 - This tree builds and links with ESP-IDF v5.3 (IRAM 14.3 KB free, static DRAM 11.3 KB free, app 26% free), but it has not been flashed or tested on a Chromatic here. Build it locally before trusting a flash. NimBLE include paths and Kconfig names follow ESP-IDF v5.3; if `idf.py` disagrees, the build log is the source of truth.
 - Light sleep is off by default, so the battery will not last as long as stock.
 - The font is ASCII. Other bytes become `?`. Replies are capped at 640 characters, 20 columns, and 13 lines per page.
+- Phone typing (`grok web`) is plain HTTP with a 6-digit PIN. Anyone on the LAN can read the PIN and questions in transit. It has not been tested on a Chromatic yet.
 - One request at a time. Proxy mode speaks plain `http://`. Direct mode uses TLS to api.x.ai with BLE off; the xAI key is then on the device, unencrypted.
 - The proxy uses a shared bearer token over plain HTTP. Anyone who can sniff the LAN can see the token; rotate it if the network is shared.
 - BLE pairing was written against the NimBLE v5.3 API and has not been tested with a real central here.
