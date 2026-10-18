@@ -11,6 +11,7 @@
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "linenoise/linenoise.h"
 #include "lvgl.h"
 
 #include <stdio.h>
@@ -27,6 +28,7 @@ static QueueHandle_t s_jobs;
 static char s_last[GROK_PROMPT_MAX + 1];
 static char s_show[GROK_REPLY_MAX + 1];
 static char s_folded[GROK_REPLY_MAX + 1];
+static TaskHandle_t s_console_task;
 
 static void lock(void)
 {
@@ -255,6 +257,22 @@ static int split_args(char *line, char **argv, int max)
     return argc;
 }
 
+/* Replace console history so a typed key cannot be recalled with the up
+ * arrow. linenoiseHistoryFree() leaves a stale length behind, so shrink the
+ * history to one entry, overwrite it, and restore the REPL default (32,
+ * ESP_CONSOLE_REPL_CONFIG_DEFAULT; main.c does not change it). linenoise
+ * history is not thread safe: only do this on the console task, between
+ * lines, never from the BLE path. */
+static void forget_console_line(void)
+{
+    if ((s_console_task != NULL) && (xTaskGetCurrentTaskHandle() == s_console_task))
+    {
+        linenoiseHistorySetMaxLen(1);
+        linenoiseHistoryAdd("grok key set (hidden)");
+        linenoiseHistorySetMaxLen(32);
+    }
+}
+
 static void wifi_usage(void)
 {
     grok_say("wifi: status | connect | disconnect | clear | set <ssid> <password>\n");
@@ -262,7 +280,7 @@ static void wifi_usage(void)
 
 static void grok_usage(void)
 {
-    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | ble unpair | page next|prev|N | ask <prompt> | show <text>\n");
+    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | ble unpair | page next|prev|N | ask <prompt> | show <text>\n");
 }
 
 static void cmd_wifi(int argc, char **argv)
@@ -325,16 +343,18 @@ static void cmd_grok(int argc, char **argv)
         char wifi[32];
         char ble[16];
         char url[GROK_URL_MAX + 1];
-        char line[GROK_URL_MAX + 96];
+        char line[GROK_URL_MAX + 128];
 
         grok_wifi_format(wifi, sizeof(wifi));
         grok_ble_format(ble, sizeof(ble));
         grok_store_get_url(url, sizeof(url));
-        snprintf(line, sizeof(line), "grok: %s %s %s url=%s token=%s\n",
+        snprintf(line, sizeof(line), "grok: %s %s %s mode=%s url=%s token=%s xai_key=%s\n",
                  wifi, ble,
                  s_keep_awake ? "awake" : "light-sleep allowed",
+                 (grok_store_get_mode() == GROK_MODE_DIRECT) ? "direct" : "proxy",
                  (url[0] != '\0') ? url : "(unset)",
-                 grok_store_has_token() ? "set" : "unset");
+                 grok_store_has_token() ? "set" : "unset",
+                 grok_store_has_xai_key() ? "set" : "unset");
         grok_say(line);
         return;
     }
@@ -391,6 +411,81 @@ static void cmd_grok(int argc, char **argv)
             return;
         }
         grok_usage();
+        return;
+    }
+    if (strcmp(argv[1], "key") == 0)
+    {
+        /* xAI API key for direct mode. Never echoed, logged or put in an
+         * error message. The console line is dropped from history. */
+        if ((argc == 4) && (strcmp(argv[2], "set") == 0))
+        {
+            size_t len = strlen(argv[3]);
+            bool saved = false;
+
+            if ((len >= GROK_XAI_KEY_MIN) && (len <= GROK_XAI_KEY_MAX))
+            {
+                saved = grok_store_set_xai_key(argv[3]);
+            }
+            memset(argv[3], 0, len);
+            forget_console_line();
+            if ((len < GROK_XAI_KEY_MIN) || (len > GROK_XAI_KEY_MAX))
+            {
+                grok_say("grok: key must be 16 to 192 printable characters; not saved\n");
+                return;
+            }
+            grok_say(saved ? "grok: xai key saved\n" : "grok: could not save xai key\n");
+            return;
+        }
+        if ((argc == 3) && (strcmp(argv[2], "clear") == 0))
+        {
+            grok_store_clear_xai_key();
+            grok_say("grok: xai key cleared\n");
+            return;
+        }
+        for (int i = 3; i < argc; i++)
+        {
+            memset(argv[i], 0, strlen(argv[i]));
+        }
+        if (argc >= 4)
+        {
+            forget_console_line();
+        }
+        grok_say("grok: key set <key> | key clear\n");
+        return;
+    }
+    if (strcmp(argv[1], "mode") == 0)
+    {
+        if (argc == 2)
+        {
+            grok_say((grok_store_get_mode() == GROK_MODE_DIRECT) ? "grok: mode direct\n" : "grok: mode proxy\n");
+            return;
+        }
+        if ((argc == 3) && (strcmp(argv[2], "direct") == 0))
+        {
+            if (!grok_store_set_mode(GROK_MODE_DIRECT))
+            {
+                grok_say("grok: could not save mode\n");
+                return;
+            }
+            grok_say("grok: mode direct. ble stops before the next ask and stays off while mode is direct\n");
+            return;
+        }
+        if ((argc == 3) && (strcmp(argv[2], "proxy") == 0))
+        {
+            if (!grok_store_set_mode(GROK_MODE_PROXY))
+            {
+                grok_say("grok: could not save mode\n");
+                return;
+            }
+            grok_say(grok_ble_released() ? "grok: mode proxy. reboot to bring ble back\n" : "grok: mode proxy\n");
+            return;
+        }
+        grok_usage();
+        return;
+    }
+    if (strcmp(argv[1], "mem") == 0)
+    {
+        grok_mem_print("now");
         return;
     }
     if ((strcmp(argv[1], "ble") == 0) && (argc == 3) && (strcmp(argv[2], "unpair") == 0))
@@ -567,7 +662,14 @@ static void radio_task(void *arg)
     (void)arg;
 
     grok_wifi_start();
-    if (!grok_ble_start())
+    if (grok_store_get_mode() == GROK_MODE_DIRECT)
+    {
+        /* Direct HTTPS mode: never start BLE; give its RAM to the heap. */
+        printf("grok: mode direct, ble not started\n");
+        grok_ble_stop();
+        grok_mem_print("boot");
+    }
+    else if (!grok_ble_start())
     {
         printf("ble: continuing with serial and wifi\n");
     }
@@ -597,6 +699,32 @@ static void radio_task(void *arg)
             continue;
         }
 
+        if (grok_store_get_mode() == GROK_MODE_DIRECT)
+        {
+            char key[GROK_XAI_KEY_MAX + 1];
+
+            if (!grok_ble_released())
+            {
+                grok_mem_print("before ble stop");
+                if (!grok_ble_stop())
+                {
+                    grok_publish("ble did not stop; reboot and retry");
+                    continue;
+                }
+                grok_mem_print("after ble stop");
+            }
+            if (!grok_store_get_xai_key(key, sizeof(key)))
+            {
+                memset(key, 0, sizeof(key));
+                grok_publish("no xai key. grok key set <key>");
+                continue;
+            }
+            grok_https_ask(key, job.prompt, reply, sizeof(reply));
+            memset(key, 0, sizeof(key));
+            grok_publish(reply);
+            continue;
+        }
+
         grok_store_get_url(url, sizeof(url));
         if (url[0] == '\0')
         {
@@ -613,6 +741,7 @@ static void radio_task(void *arg)
 
 static int cmd_entry(int argc, char **argv)
 {
+    s_console_task = xTaskGetCurrentTaskHandle();
     grok_exec(argc, argv);
     return 0;
 }
@@ -627,7 +756,7 @@ static void register_commands(void)
     };
     const esp_console_cmd_t grok_cmd = {
         .command = "grok",
-        .help = "Grok link: status, ask, show, url, page, open, close, retry, sleep",
+        .help = "Grok link: status, ask, show, url, token, mode, key, mem, page, open, close, retry, sleep",
         .hint = NULL,
         .func = &cmd_entry,
     };

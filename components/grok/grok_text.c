@@ -392,3 +392,191 @@ size_t grok_text_wrap(const char *text, char *storage, size_t line_stride,
     (void)col;
     return line;
 }
+/* Like grok_text_json_get_string, but a match whose value is not a string
+ * (object, array, number) is skipped instead of ending the search. */
+static bool find_string(const char *json, const char *key, char *out, size_t out_cap)
+{
+    size_t key_len = strlen(key);
+
+    out[0] = '\0';
+    for (const char *p = json; (p = strchr(p, '"')) != NULL; )
+    {
+        const char *after;
+
+        p++;
+        if ((strncmp(p, key, key_len) != 0) || (p[key_len] != '"'))
+        {
+            continue;
+        }
+        after = p + key_len + 1;
+        while ((*after == ' ') || (*after == '\t') || (*after == '\n') || (*after == '\r'))
+        {
+            after++;
+        }
+        if (*after != ':')
+        {
+            continue;
+        }
+        after++;
+        while ((*after == ' ') || (*after == '\t') || (*after == '\n') || (*after == '\r'))
+        {
+            after++;
+        }
+        if (*after != '"')
+        {
+            continue;
+        }
+        after++;
+        return decode_json_string(&after, out, out_cap);
+    }
+    return false;
+}
+
+bool grok_text_responses_text(const char *json, char *out, size_t out_cap)
+{
+    enum { kMaxDepth = 24 };
+    const char *obj[kMaxDepth];
+    int depth = 0;
+
+    if ((json == NULL) || (out == NULL) || (out_cap == 0))
+    {
+        return false;
+    }
+    out[0] = '\0';
+
+    /* Convenience field, if the server sends it. */
+    if (find_string(json, "output_text", out, out_cap) && (out[0] != '\0'))
+    {
+        return true;
+    }
+
+    /* Otherwise the first {"type":"output_text","text":"..."} content block. */
+    for (const char *p = json; *p != '\0'; p++)
+    {
+        if (*p == '"')
+        {
+            const char *s = p + 1;
+            const char *q = s;
+
+            while ((*q != '\0') && (*q != '"'))
+            {
+                if ((*q == '\\') && (q[1] != '\0'))
+                {
+                    q++;
+                }
+                q++;
+            }
+            if (*q == '\0')
+            {
+                break;
+            }
+            if (((size_t)(q - s) == 11) && (strncmp(s, "output_text", 11) == 0) &&
+                (depth > 0) && (depth <= kMaxDepth))
+            {
+                const char *b = p;
+
+                while ((b > json) && ((b[-1] == ' ') || (b[-1] == '\t') || (b[-1] == '\n') || (b[-1] == '\r')))
+                {
+                    b--;
+                }
+                if ((b > json) && (b[-1] == ':') &&
+                    find_string(obj[depth - 1], "text", out, out_cap) && (out[0] != '\0'))
+                {
+                    return true;
+                }
+            }
+            p = q;
+            continue;
+        }
+        if (*p == '{')
+        {
+            if (depth < kMaxDepth)
+            {
+                obj[depth] = p;
+            }
+            depth++;
+        }
+        else if ((*p == '}') && (depth > 0))
+        {
+            depth--;
+        }
+    }
+    out[0] = '\0';
+    return false;
+}
+
+bool grok_text_responses_error(const char *json, char *out, size_t out_cap)
+{
+    if ((json == NULL) || (out == NULL) || (out_cap == 0))
+    {
+        return false;
+    }
+    if (find_string(json, "error", out, out_cap) && (out[0] != '\0'))
+    {
+        return true;
+    }
+    if (find_string(json, "message", out, out_cap) && (out[0] != '\0'))
+    {
+        return true;
+    }
+    out[0] = '\0';
+    return false;
+}
+
+static bool is_key_char(char ch)
+{
+    return ((ch >= 'a') && (ch <= 'z')) || ((ch >= 'A') && (ch <= 'Z')) ||
+           ((ch >= '0') && (ch <= '9')) || (ch == '_') || (ch == '-');
+}
+
+size_t grok_text_redact(const char *in, const char *secret, char *out, size_t out_cap)
+{
+    static const char kMark[] = "[redacted]";
+    size_t secret_len = (secret != NULL) ? strlen(secret) : 0;
+    size_t n = 0;
+
+    if ((out == NULL) || (out_cap == 0))
+    {
+        return 0;
+    }
+    out[0] = '\0';
+    if (in == NULL)
+    {
+        return 0;
+    }
+
+    while (*in != '\0')
+    {
+        size_t skip = 0;
+
+        if ((secret_len > 0) && (strncmp(in, secret, secret_len) == 0))
+        {
+            skip = secret_len;
+        }
+        else if (strncmp(in, "xai-", 4) == 0)
+        {
+            skip = 4;
+            while (is_key_char(in[skip]))
+            {
+                skip++;
+            }
+        }
+
+        if (skip > 0)
+        {
+            for (size_t i = 0; (kMark[i] != '\0') && ((n + 1) < out_cap); i++)
+            {
+                out[n++] = kMark[i];
+            }
+            in += skip;
+            continue;
+        }
+        if ((n + 1) < out_cap)
+        {
+            out[n++] = *in;
+        }
+        in++;
+    }
+    out[n] = '\0';
+    return n;
+}
