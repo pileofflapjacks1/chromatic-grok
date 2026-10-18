@@ -96,3 +96,8 @@ CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
 CONFIG_SECURE_BOOT_VERIFICATION_KEY="keys/joe_signature_verification_key.bin"
 # Rollback is done in the app (grok_update.c); the stock bootloader was not
 # built with CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE.
+
+# Phone typing page (grok web on). Phone browsers send long header lines
+# (User-Agent, Accept); 512 is too short for some. One scratch buffer per
+# server, heap, only while the page runs.
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024

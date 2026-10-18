@@ -25,6 +25,7 @@ typedef enum {
 
 typedef struct GrokJob {
     uint8_t kind;
+    uint8_t web;       /* asked from the phone page */
     char prompt[GROK_PROMPT_MAX + 1];
 } GrokJob_t;
 
@@ -32,6 +33,8 @@ static volatile bool s_keep_awake = true;
 static SemaphoreHandle_t s_mu;
 static SemaphoreHandle_t s_pub;
 static QueueHandle_t s_jobs;
+/* Set by the radio task while it runs a job the phone page asked. */
+static volatile bool s_job_web;
 static char s_last[GROK_PROMPT_MAX + 1];
 static char s_show[GROK_REPLY_MAX + 1];
 static char s_folded[GROK_REPLY_MAX + 1];
@@ -92,6 +95,10 @@ void grok_publish(const char *text)
     grok_say("GROK_END\n");
     grok_ui_set_body(s_folded);
     grok_ble_queue_text(s_folded);
+    if (s_job_web)
+    {
+        grok_web_answer(s_folded);
+    }
     if (s_pub != NULL)
     {
         xSemaphoreGive(s_pub);
@@ -125,6 +132,30 @@ bool grok_submit_prompt(const char *prompt)
         grok_publish("busy");
         return false;
     }
+    return true;
+}
+
+bool grok_submit_web(const char *prompt)
+{
+    GrokJob_t job;
+
+    if ((prompt == NULL) || (prompt[0] == '\0') || (s_jobs == NULL))
+    {
+        return false;
+    }
+    memset(&job, 0, sizeof(job));
+    job.kind = GROK_JOB_ASK;
+    job.web = 1;
+    lock();
+    snprintf(s_last, sizeof(s_last), "%s", prompt);
+    snprintf(job.prompt, sizeof(job.prompt), "%s", s_last);
+    unlock();
+
+    if (xQueueSend(s_jobs, &job, 0) != pdTRUE)
+    {
+        return false;
+    }
+    grok_ui_set_body("...");
     return true;
 }
 
@@ -386,6 +417,38 @@ static void cmd_update(int argc, char **argv)
     submit_job(GROK_JOB_UPDATE, url);
 }
 
+static void cmd_web(int argc, char **argv)
+{
+    if ((argc == 2) || ((argc == 3) && (strcmp(argv[2], "status") == 0)))
+    {
+        grok_web_status();
+        return;
+    }
+    if ((argc == 3) && (strcmp(argv[2], "on") == 0))
+    {
+        if (!grok_store_set_web(true))
+        {
+            grok_say("grok: could not save web setting\n");
+            return;
+        }
+        grok_say("web: on. plain http on the lan: the pin and questions are not encrypted\n");
+        grok_web_kick();
+        grok_web_status();
+        return;
+    }
+    if ((argc == 3) && (strcmp(argv[2], "off") == 0))
+    {
+        if (!grok_store_set_web(false))
+        {
+            grok_say("grok: could not save web setting\n");
+        }
+        grok_web_down();
+        grok_say("web: off\n");
+        return;
+    }
+    grok_say("grok: web on | web off | web status\n");
+}
+
 static void wifi_usage(void)
 {
     grok_say("wifi: status | connect | disconnect | clear | set <ssid> <password>\n");
@@ -393,7 +456,7 @@ static void wifi_usage(void)
 
 static void grok_usage(void)
 {
-    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | q list|set <n> <text>|clear <n>|ask <n> | ble unpair | update [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
+    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | q list|set <n> <text>|clear <n>|ask <n> | web on|off|status | ble unpair | update [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
 }
 
 static void cmd_wifi(int argc, char **argv)
@@ -610,6 +673,12 @@ static void cmd_grok(int argc, char **argv)
     if (strcmp(argv[1], "mem") == 0)
     {
         grok_mem_print("now");
+        grok_web_mem_print();
+        return;
+    }
+    if (strcmp(argv[1], "web") == 0)
+    {
+        cmd_web(argc, argv);
         return;
     }
     if ((strcmp(argv[1], "ble") == 0) && (argc == 3) && (strcmp(argv[2], "unpair") == 0))
@@ -792,6 +861,7 @@ static void radio_task(void *arg)
         printf("grok: mode direct, ble not started\n");
         grok_ble_stop();
         grok_mem_print("boot");
+        grok_web_kick();
     }
     else if (!grok_ble_start())
     {
@@ -805,12 +875,14 @@ static void radio_task(void *arg)
         char token[GROK_TOKEN_MAX + 1];
         char reply[GROK_REPLY_MAX + 1];
 
+        s_job_web = false;
         if (xQueueReceive(s_jobs, &job, grok_update_trial() ? pdMS_TO_TICKS(1000) : portMAX_DELAY) != pdTRUE)
         {
             grok_update_tick();
             continue;
         }
         grok_update_tick();
+        s_job_web = (job.web != 0);
 
         if (job.kind == GROK_JOB_ROLLBACK)
         {
@@ -839,7 +911,9 @@ static void radio_task(void *arg)
                 grok_publish("ble did not stop; reboot and retry");
                 continue;
             }
+            grok_web_pause();
             grok_update_run(job.prompt);
+            grok_web_resume();
             continue;
         }
 
@@ -863,9 +937,13 @@ static void radio_task(void *arg)
                 grok_publish("no xai key. grok key set <key>");
                 continue;
             }
+            /* The phone page's server and sockets give their RAM to TLS
+             * for the call; PIN and answer are kept. */
+            grok_web_pause();
             grok_https_ask(key, job.prompt, reply, sizeof(reply));
             memset(key, 0, sizeof(key));
             grok_publish(reply);
+            grok_web_resume();
             continue;
         }
 
@@ -899,7 +977,7 @@ static void register_commands(void)
     };
     const esp_console_cmd_t grok_cmd = {
         .command = "grok",
-        .help = "Grok link: status, ask, q, show, url, token, mode, key, mem, update, page, open, close, retry, sleep",
+        .help = "Grok link: status, ask, q, show, url, token, mode, key, mem, web, update, page, open, close, retry, sleep",
         .hint = NULL,
         .func = &cmd_entry,
     };
@@ -931,6 +1009,7 @@ void Grok_Init(lv_obj_t *screen)
     }
 
     grok_store_init();
+    grok_web_init();
     grok_ui_init(screen);
     register_commands();
     printf("grok: link ready. `help` lists wifi and grok.\n");

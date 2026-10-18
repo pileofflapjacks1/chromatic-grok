@@ -29,6 +29,9 @@ void grok_publish(const char *text);
 void grok_exec(int argc, char **argv);
 void grok_exec_line(char *line);
 bool grok_submit_prompt(const char *prompt);
+/* Queue a phone-page question on the grok ask path. False when the queue is
+ * full; publishes nothing itself. */
+bool grok_submit_web(const char *prompt);
 void grok_submit_show(const char *text);
 bool grok_retry(void);
 
@@ -48,6 +51,9 @@ bool grok_store_get_xai_key(char *out, size_t out_cap);
 bool grok_store_has_xai_key(void);
 bool grok_store_set_mode(GrokMode_t mode);
 GrokMode_t grok_store_get_mode(void);
+/* Phone page on/off, NVS grokcfg/web. Default off. */
+bool grok_store_set_web(bool on);
+bool grok_store_get_web(void);
 /* Custom preset questions (0-based slot), NVS "q1".."q8". */
 bool grok_store_get_question(int idx, char *out, size_t out_cap);
 bool grok_store_set_question(int idx, const char *text);
@@ -88,6 +94,19 @@ void grok_ui_page(int delta);
 void grok_ui_set_page(int page);
 /* Show the preset question picker. */
 void grok_ui_open_picker(void);
+
+/* Phone typing page (grok_web.c), port 80, off by default. kick starts the
+ * server when enabled, Wi-Fi has an IP and (direct mode) BLE is released;
+ * down stops it and forgets the PIN; pause/resume stop it around TLS. */
+void grok_web_init(void);
+void grok_web_kick(void);
+void grok_web_down(void);
+void grok_web_pause(void);
+void grok_web_resume(void);
+/* Hands a published reply to the page if it asked the running job. */
+void grok_web_answer(const char *text);
+void grok_web_status(void);
+void grok_web_mem_print(void);
 
 /* True once the masked-echo console task is reading input. */
 bool grok_console_running(void);
