@@ -8,8 +8,17 @@
 
 #define GROK_PICK_COUNT 8
 
+/* Picker row prefix ('>', slot number, '*'), so a label gets the rest of
+ * a GROK_TEXT_COLS (20) row: 17 characters. */
+#define GROK_PICK_ROW_PREFIX 3
+#define GROK_PICK_LABEL_MAX 17
+
 /* Built-in question idx (0-based), stored in flash. NULL if out of range. */
 const char *grok_pick_builtin(int idx);
+
+/* Short on-screen label for built-in idx (at most GROK_PICK_LABEL_MAX
+ * characters). Display only: the full question is what gets asked. */
+const char *grok_pick_label(int idx);
 
 /* Move the selection by delta and wrap within 0..GROK_PICK_COUNT-1. */
 int grok_pick_step(int cur, int delta);
