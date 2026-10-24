@@ -183,7 +183,10 @@ static void render_picker(int pick, char *view, size_t view_cap, char *lines, ch
         size_t len;
 
         grok_question_get(i, view, view_cap, &custom);
-        len = grok_pick_format_row(row, sizeof(row), i, view, i == pick, custom, GROK_TEXT_COLS);
+        /* Built-in rows show the short label; the preview below and the
+         * question that is asked keep the full text. */
+        len = grok_pick_format_row(row, sizeof(row), i, custom ? view : grok_pick_label(i),
+                                   i == pick, custom, GROK_TEXT_COLS);
         if ((used + len + 2) >= page_cap)
         {
             break;

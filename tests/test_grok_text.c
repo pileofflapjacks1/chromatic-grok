@@ -174,6 +174,22 @@ static void test_pick(void)
             expect_true("builtin ascii", (*p >= 0x20) && (*p <= 0x7e));
         }
     }
+    expect_true("label max fits row", (GROK_PICK_ROW_PREFIX + GROK_PICK_LABEL_MAX) == GROK_TEXT_COLS);
+    for (int i = 0; i < GROK_PICK_COUNT; i++)
+    {
+        const char *label = grok_pick_label(i);
+        const char *q = grok_pick_builtin(i);
+        expect_true("label set", (label != NULL) && (label[0] != '\0'));
+        expect_true("label fits", (label != NULL) && (strlen(label) <= GROK_PICK_LABEL_MAX));
+        expect_true("label is not the question", (label != NULL) && (q != NULL) && (label != q));
+        expect_true("question still full", (q != NULL) && (strlen(q) > strlen(label)));
+        grok_pick_format_row(row, sizeof(row), i, label, true, false, GROK_TEXT_COLS);
+        expect_true("label row unclipped", (label != NULL) && (strcmp(row + GROK_PICK_ROW_PREFIX, label) == 0));
+    }
+    expect_true("label range lo", grok_pick_label(-1) == NULL);
+    expect_true("label range hi", grok_pick_label(GROK_PICK_COUNT) == NULL);
+    expect_true("question 1 full", strcmp(grok_pick_builtin(0), "Tell me a fun fact.") == 0);
+    expect_true("question 3 full", strcmp(grok_pick_builtin(2), "Give me a short riddle. Answer at the end.") == 0);
     expect_true("builtin range lo", grok_pick_builtin(-1) == NULL);
     expect_true("builtin range hi", grok_pick_builtin(GROK_PICK_COUNT) == NULL);
 

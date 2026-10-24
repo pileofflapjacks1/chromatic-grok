@@ -17,6 +17,18 @@ static const char *const kBuiltin[GROK_PICK_COUNT] = {
     "Motivate me in one sentence.",
 };
 
+/* Short picker labels, same order as kBuiltin. Each fits one picker row. */
+static const char *const kLabel[GROK_PICK_COUNT] = {
+    "Fun fact",
+    "One-line joke",
+    "Short riddle",
+    "Quick game idea",
+    "Word of the day",
+    "Science, simply",
+    "Retro game tip",
+    "Motivate me",
+};
+
 const char *grok_pick_builtin(int idx)
 {
     if ((idx < 0) || (idx >= GROK_PICK_COUNT))
@@ -24,6 +36,15 @@ const char *grok_pick_builtin(int idx)
         return NULL;
     }
     return kBuiltin[idx];
+}
+
+const char *grok_pick_label(int idx)
+{
+    if ((idx < 0) || (idx >= GROK_PICK_COUNT))
+    {
+        return NULL;
+    }
+    return kLabel[idx];
 }
 
 int grok_pick_step(int cur, int delta)

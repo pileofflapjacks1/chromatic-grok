@@ -1,3 +1,12 @@
+## 0.16.1-grok (draft, unreleased)
+
+### Changed
+- Question picker rows show a short label for each built-in question (at most 17 characters, so `>1*` plus the label fits the 20-column row). The full question is still what is asked and is still shown in the preview under the list and in `grok q list`. Custom questions are unchanged.
+- App version `0.16.1-grok`.
+
+### Added
+- `tests/test_grok_text.c`: every short label fits the row and every preset keeps its full question.
+
 ## 0.16.0-grok (draft, unreleased)
 
 ### Added
