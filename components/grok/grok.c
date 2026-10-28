@@ -35,6 +35,7 @@ static SemaphoreHandle_t s_pub;
 static QueueHandle_t s_jobs;
 /* Set by the radio task while it runs a job the phone page asked. */
 static volatile bool s_job_web;
+static bool s_save_bot_last;
 static char s_last[GROK_PROMPT_MAX + 1];
 static char s_show[GROK_REPLY_MAX + 1];
 static char s_folded[GROK_REPLY_MAX + 1];
@@ -99,6 +100,19 @@ void grok_publish(const char *text)
     {
         grok_web_answer(s_folded);
     }
+    if (s_save_bot_last)
+    {
+        char pclip[GROK_BOTS_LAST_PROMPT_MAX + 1];
+        char rclip[GROK_BOTS_LAST_REPLY_MAX + 1];
+
+        s_save_bot_last = false;
+        grok_bots_clip(pclip, sizeof(pclip), s_last, GROK_BOTS_LAST_PROMPT_MAX);
+        grok_bots_clip(rclip, sizeof(rclip), s_folded, GROK_BOTS_LAST_REPLY_MAX);
+        if (pclip[0] != '\0')
+        {
+            grok_store_set_bot_last(grok_bots_selected(), pclip, rclip);
+        }
+    }
     if (s_pub != NULL)
     {
         xSemaphoreGive(s_pub);
@@ -124,6 +138,7 @@ bool grok_submit_prompt(const char *prompt)
     lock();
     snprintf(s_last, sizeof(s_last), "%s", prompt);
     snprintf(job.prompt, sizeof(job.prompt), "%s", s_last);
+    s_save_bot_last = true;
     unlock();
 
     grok_ui_set_body("...");
@@ -149,6 +164,7 @@ bool grok_submit_web(const char *prompt)
     lock();
     snprintf(s_last, sizeof(s_last), "%s", prompt);
     snprintf(job.prompt, sizeof(job.prompt), "%s", s_last);
+    s_save_bot_last = true;
     unlock();
 
     if (xQueueSend(s_jobs, &job, 0) != pdTRUE)
@@ -433,6 +449,7 @@ static void cmd_web(int argc, char **argv)
         }
         grok_say("web: on. plain http on the lan: the pin and questions are not encrypted\n");
         grok_web_kick();
+        grok_web_show_pin();
         grok_web_status();
         return;
     }
@@ -682,13 +699,15 @@ static void cmd_grok(int argc, char **argv)
         for (int i = 0; i < GROK_BOTS_COUNT; i++)
         {
             const char *name = grok_bots_name(i);
-            const char *note = grok_bots_note(i);
+            char prompt[GROK_BOTS_LAST_PROMPT_MAX + 1];
+            char reply[GROK_BOTS_LAST_REPLY_MAX + 1];
             char line[96];
+            bool have = grok_store_get_bot_last(i, prompt, sizeof(prompt), reply, sizeof(reply));
 
             snprintf(line, sizeof(line), "grok: bot %d %s%s\n",
                      i + 1,
                      (name != NULL) ? name : "?",
-                     ((note != NULL) && (note[0] != '\0')) ? " (note)" : "");
+                     have ? " (last)" : "");
             grok_say(line);
         }
         grok_ui_open_bots();

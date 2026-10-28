@@ -298,11 +298,15 @@ static bool server_stop(bool pause)
     return h != NULL;
 }
 
-static void show_pin(void)
+void grok_web_show_pin(void)
 {
     char ip[32];
     char text[96];
 
+    if (s_pin[0] == '\0')
+    {
+        return;
+    }
     grok_wifi_format(ip, sizeof(ip));
     snprintf(text, sizeof(text), "PHONE TYPING\n\nOpen on your phone:\nhttp://%s\n\nPIN %s", ip, s_pin);
     grok_ui_set_body(text);
@@ -329,8 +333,6 @@ static bool can_run(void)
 
 void grok_web_kick(void)
 {
-    bool shown = false;
-
     if (s_mu == NULL)
     {
         return;
@@ -356,18 +358,18 @@ void grok_web_kick(void)
         }
         else if (fresh)
         {
+            char ip[32];
+
             grok_web_pin_format(esp_random(), s_pin);
             memset(&s_guard, 0, sizeof(s_guard));
             s_state = WEB_IDLE;
             s_stack_min = 0;
-            shown = true;
+            /* Do not steal the Grok overlay; Phone typing / `grok web on` call show_pin. */
+            grok_wifi_format(ip, sizeof(ip));
+            printf("web: listening http://%s pin %s\n", ip, s_pin);
         }
     }
     unlock();
-    if (shown)
-    {
-        show_pin();
-    }
 }
 
 void grok_web_down(void)

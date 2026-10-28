@@ -10,7 +10,7 @@ This is a modified version of the ModRetro Chromatic MCU firmware, distributed u
 
 The Chromatic MCU is an ESP32-U4WDH with 4 MB of flash and no PSRAM. The screen is 160×144. The ESP32 is not on USB directly. The FPGA's composite USB device includes a CDC serial port (USB VID:PID `0x374E:0x0101`, "Chromatic - Player 01") that is bridged to ESP32 UART0, and that port is used for flashing and the `mcu>` console. GPIO9 and GPIO10 are the FPGA UART, so the flash stays in DIO mode.
 
-App version: `0.17.1-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
+App version: `0.18.0-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
 
 Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are not in this firmware.
 
@@ -24,7 +24,7 @@ Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are no
 
 ## What you get
 
-- Stock OSD, with a GROK row on the System tab and a Start shortcut while the menu is open.
+- Stock OSD; opening the Chromatic menu goes to the Grok loader then the bot list (Start / System GROK A still work).
 - Wi-Fi station mode. SSID and password are stored in NVS (`grokcfg`) and can be set from the serial console.
 - BLE peripheral named `ChromaticGrok`. It speaks the same line commands as the console, but only after passkey pairing (encrypted, bonded, MITM-protected).
 - `grok ask` posts the prompt to an `http://` proxy you run (the proxy holds the xAI key), or, in direct mode, calls api.x.ai over HTTPS with BLE off.
@@ -219,7 +219,7 @@ grok ask What is a Game Boy?
 
 The token is stored in NVS (`grokcfg/token`) and is never printed; `grok status` shows only `token=set` or `token=unset`. `grok token clear` removes it.
 
-The screen shows `...`, then the reply. Open the Chromatic menu and press Start, or open System → GROK and press A. Up and Down change page. A sends the last prompt again. B or Start closes the overlay.
+The screen shows `...`, then the reply. Open the Chromatic menu (loader → bots), or System → GROK and press A / Start. On a reply, Up and Down change page, A sends the last prompt again, B returns to the bot note, Start closes.
 
 The proxy calls `POST https://api.x.ai/v1/responses` with model `grok-4.7` (`XAI_MODEL` overrides it) and asks for a short plain-ASCII answer. Override the model only if you know that name is valid for your key.
 
@@ -277,7 +277,7 @@ GROK_END
 
 ## Buttons
 
-The FPGA gives the MCU buttons while the stock menu is open. Start is the shortcut. Select is not visible to the MCU in the stock button driver, so it is not used here. Gameplay buttons are unchanged while the menu is closed.
+The FPGA gives the MCU buttons while the stock menu is open. Opening the menu starts Grok (loader then bots); Start is also a shortcut. Select is not visible to the MCU in the stock button driver, so it is not used here. Gameplay buttons are unchanged while the menu is closed.
 
 ## BLE
 
@@ -295,17 +295,17 @@ sh tests/run_host.sh
 
 That compiles `grok_text` with the host `cc` and checks the proxy's reply parser with no network.
 
-### Preset questions on the handheld
+### Bot menu on the handheld
 
-Open the Grok screen (A on the System tab GROK row, or Start while the menu is open). It starts on a list of 8 questions. **Up/Down** picks, **A** asks, **B** goes back. On the reply, Up/Down pages, A asks again, B returns to the list, Start closes.
+Open the Chromatic menu (or press Start / A on the System tab GROK row). Grok plays the connecting loader for one cycle, then shows the bot list (Carty G, The Chief, Awesome Coder, Chromatic Add-ons, plus **Phone typing**). **Up/Down** picks, **A** opens a bot's "Where we left off" note (last prompt and a short reply snippet, or "(nothing yet)"), **B** / Start closes. Asks from serial, BLE, phone typing, or retry are saved to the currently selected bot in NVS (`grokcfg/b0`..`b3`).
 
-The 8 built-in questions are in flash. You can replace any slot; custom text is saved in NVS (`grokcfg/q1`..`q8`) and marked `*` in the list:
+Preset questions are console-only (not shown in the bot UI):
 
 ```text
 grok q list
 grok q set 3 "What should I play tonight?"
 grok q clear 3          (back to the built-in question)
-grok q ask 3            (same as picking it on the handheld)
+grok q ask 3
 ```
 
 ### Direct mode (no proxy, BLE off)
@@ -324,15 +324,15 @@ grok ask "hello"
 
 ### Phone typing (`grok web`)
 
-Type a question on your phone; the answer shows on the Chromatic screen (same overlay as `grok ask`) and on the phone. Off by default.
+Type a question on your phone; the answer shows on the Chromatic screen (same overlay as `grok ask`) and on the phone. **Off by default** and does not open on its own when Wi-Fi connects. Turn it on from the bot list **Phone typing** row, or:
 
 ```text
-grok web on        (saved in NVS grokcfg/web; starts once Wi-Fi has an IP)
+grok web on        (saved in NVS grokcfg/web; starts once Wi-Fi has an IP; shows PIN on screen)
 grok web status    (http://<ip> and the 6-digit PIN)
 grok web off
 ```
 
-At every start the Chromatic makes a new random 6-digit PIN and shows it with its address on the Grok screen (`grok web status` prints it too). On a phone on the same Wi-Fi, open `http://<ip>`, type the PIN and a question (1 to 200 characters, sent as printable ASCII), press Send. The page polls until the answer arrives. The question goes on the same queue as `grok ask`, so direct and proxy mode behave as usual (direct mode still stops BLE). One question at a time; a second one gets "busy" (409). 5 wrong PINs lock the page for 60 s.
+When you enable it, the Chromatic makes a random 6-digit PIN and shows it with its address. On a phone on the same Wi-Fi, open `http://<ip>`, type the PIN and a question (1 to 200 characters, sent as printable ASCII), press Send. The page polls until the answer arrives. The question goes on the same queue as `grok ask` and is stored as that bot's last prompt. One question at a time; a second one gets "busy" (409). 5 wrong PINs lock the page for 60 s.
 
 - **Plain HTTP.** The PIN, the question and the answer cross your LAN unencrypted. Use it only on a network you trust. The xAI key and proxy token are never sent to the phone.
 - Port 80, at most 2 open connections. The server and its buffers (about 8 KB of heap) exist only while it runs.
