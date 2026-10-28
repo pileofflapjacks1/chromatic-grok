@@ -17,5 +17,8 @@ bool grok_loader_decode_indices(int frame, uint8_t *out, size_t out_cap);
  * loop start at start_ms. */
 int grok_loader_frame_at(uint32_t now_ms, uint32_t start_ms);
 
+/* Sum of every frame's duration_ms — one full animation cycle. */
+uint32_t grok_loader_cycle_ms(void);
+
 /* Total bytes of RLE payloads + RGB565 palette (for flash-size checks). */
 size_t grok_loader_flash_bytes(void);

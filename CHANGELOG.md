@@ -1,3 +1,11 @@
+## 0.17.1-grok (draft, unreleased)
+
+### Fixed
+- Opening Grok always plays the connecting loader for at least one full animation cycle (~2.19 s from `grok_loader_frames`), even when Wi-Fi is already connected or no SSID is set. After that cycle, the bot menu opens once Wi-Fi is up or there is no SSID; the existing 12 s give-up still applies while connecting.
+
+### Changed
+- App version `0.17.1-grok`. Menu firmware string stays `4.6g`. Partition table, bootloader and signing key unchanged.
+
 ## 0.17.0-grok (draft, unreleased)
 
 ### Added

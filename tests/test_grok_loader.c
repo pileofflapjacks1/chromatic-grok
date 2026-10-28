@@ -60,6 +60,8 @@ static void test_loader(void)
     expect_true("tiny buf", !grok_loader_decode_indices(0, buf, 16));
 
     expect_true("timings sum", cycle == 2190u);
+    expect_true("cycle_ms", grok_loader_cycle_ms() == 2190u);
+    expect_true("cycle_ms matches sum", grok_loader_cycle_ms() == cycle);
     expect_true("frame at 0", grok_loader_frame_at(0, 0) == 0);
     expect_true("frame at 299", grok_loader_frame_at(299, 0) == 0);
     expect_true("frame at 300", grok_loader_frame_at(300, 0) == 1);

@@ -44,17 +44,26 @@ bool grok_loader_decode_indices(int frame, uint8_t *out, size_t out_cap)
     return written == need;
 }
 
-int grok_loader_frame_at(uint32_t now_ms, uint32_t start_ms)
+uint32_t grok_loader_cycle_ms(void)
 {
-    uint32_t elapsed;
     uint32_t cycle = 0;
-    uint32_t t;
     int i;
 
     for (i = 0; i < GROK_LOADER_FRAME_COUNT; i++)
     {
         cycle += grok_loader_frames[i].duration_ms;
     }
+    return cycle;
+}
+
+int grok_loader_frame_at(uint32_t now_ms, uint32_t start_ms)
+{
+    uint32_t elapsed;
+    uint32_t cycle;
+    uint32_t t;
+    int i;
+
+    cycle = grok_loader_cycle_ms();
     if (cycle == 0)
     {
         return 0;

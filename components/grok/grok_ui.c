@@ -433,14 +433,18 @@ static void render(lv_obj_t *screen)
         return;
     }
 
-    /* Loader: animate until Wi-Fi is up (or we give up), then the bot menu. */
+    /* Loader: always play at least one full cycle, then bots once Wi-Fi is
+     * up / there is no SSID, or after the give-up timeout. */
     if (uiview == UI_LOADER)
     {
         uint32_t ms = now_ms();
+        uint32_t elapsed = ms - loader_start;
+        uint32_t cycle = grok_loader_cycle_ms();
         int next = grok_loader_frame_at(ms, loader_start);
-        bool done = grok_wifi_is_connected()
-                    || (!grok_wifi_has_ssid())
-                    || ((ms - loader_start) >= (uint32_t)kLoaderGiveUpMs);
+        bool min_played = (elapsed >= cycle);
+        bool wifi_ready = grok_wifi_is_connected() || (!grok_wifi_has_ssid());
+        bool give_up = (elapsed >= (uint32_t)kLoaderGiveUpMs);
+        bool done = min_played && (wifi_ready || give_up);
 
         if (done)
         {
@@ -632,15 +636,8 @@ static OSD_Result_t item_draw(void *arg)
 
 static void enter_menu(void)
 {
-    /* Show the loader while station Wi-Fi is still coming up; otherwise bots. */
-    if (grok_wifi_has_ssid() && !grok_wifi_is_connected())
-    {
-        grok_ui_open_loader();
-    }
-    else
-    {
-        grok_ui_open_bots();
-    }
+    /* Always show the loader for at least one full animation cycle. */
+    grok_ui_open_loader();
 }
 
 static OSD_Result_t item_button(const Button_t Button, const ButtonState_t State, void *arg)
