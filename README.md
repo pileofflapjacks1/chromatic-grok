@@ -10,7 +10,7 @@ This is a modified version of the ModRetro Chromatic MCU firmware, distributed u
 
 The Chromatic MCU is an ESP32-U4WDH with 4 MB of flash and no PSRAM. The screen is 160×144. The ESP32 is not on USB directly. The FPGA's composite USB device includes a CDC serial port (USB VID:PID `0x374E:0x0101`, "Chromatic - Player 01") that is bridged to ESP32 UART0, and that port is used for flashing and the `mcu>` console. GPIO9 and GPIO10 are the FPGA UART, so the flash stays in DIO mode.
 
-App version: `0.14.0-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
+App version: `0.17.0-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
 
 Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are not in this firmware.
 

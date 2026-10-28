@@ -1,3 +1,15 @@
+## 0.17.0-grok (draft, unreleased)
+
+### Added
+- Loading screen: Carty G's original 160×144 four-frame Grok Bot art (palette + RLE, ~3 KB flash) plays while Wi-Fi connects. Source PNGs in `components/grok/loader/`; `tools/pack_loader_frames.py` regenerates the embedded frames. Painted with LVGL rect runs (no RGB565 scratch buffer).
+- On-device bot/team menu (D-pad): Carty G, The Chief, Awesome Coder, Chromatic Add-ons. Selecting one shows a "where we left off" placeholder (empty note for now). No Grok Bot network API.
+- `grok bots`: lists the static bots on the console and opens the menu.
+- Host tests: `tests/test_grok_bots.c`, `tests/test_grok_loader.c`.
+
+### Changed
+- App version `0.17.0-grok`. Menu firmware string stays `4.6g`. Partition table, bootloader and signing key unchanged.
+- Start / System GROK A opens the loader (if Wi-Fi is still connecting) or the bot menu instead of the question picker. A on a bot note still reaches the question picker.
+
 ## 0.16.1-grok (draft, unreleased)
 
 ### Changed
