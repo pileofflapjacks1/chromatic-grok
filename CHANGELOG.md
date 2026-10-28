@@ -1,3 +1,17 @@
+## 0.18.0-grok (draft, unreleased)
+
+### Added
+- Per-bot last prompt: each ask (serial, BLE, phone typing, retry) saves the prompt and a short reply snippet in NVS (`grokcfg/b0`..`b3`, capped ~80 + ~40 chars). The bot detail screen shows "Where we left off:" with that text, or "(nothing yet)".
+- Bot list ends with a **Phone typing** row that turns on `grok web` and shows the PIN / URL. Phone typing no longer steals the overlay when Wi-Fi connects.
+
+### Changed
+- Opening the Chromatic menu (OSD) goes to the Grok loader, then the bot list. Start / System GROK A still do the same.
+- Removed the on-device preset question picker from the bot flow. Serial `grok q list|set|clear|ask` and the built-in prompts stay for the console.
+- App version `0.18.0-grok`. Menu firmware string stays `4.6g`. Partition table, bootloader and signing key unchanged.
+
+### Fixed
+- `grok_web_kick` no longer opens the PHONE TYPING overlay by itself (that was covering the bot menu whenever Wi-Fi came up with web previously enabled).
+
 ## 0.17.1-grok (draft, unreleased)
 
 ### Fixed

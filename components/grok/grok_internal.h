@@ -55,12 +55,16 @@ GrokMode_t grok_store_get_mode(void);
 /* Phone page on/off, NVS grokcfg/web. Default off. */
 bool grok_store_set_web(bool on);
 bool grok_store_get_web(void);
-/* Custom preset questions (0-based slot), NVS "q1".."q8". */
+/* Custom preset questions (0-based slot), NVS "q1".."q8". Serial `grok q` only. */
 bool grok_store_get_question(int idx, char *out, size_t out_cap);
 bool grok_store_set_question(int idx, const char *text);
 void grok_store_clear_question(int idx);
 /* Effective question: the custom one if set, else the built-in. */
 bool grok_question_get(int idx, char *out, size_t out_cap, bool *custom);
+/* Per-bot last prompt + reply snippet, NVS "b0".."b3" (one packed string each). */
+bool grok_store_set_bot_last(int idx, const char *prompt, const char *reply);
+bool grok_store_get_bot_last(int idx, char *prompt, size_t prompt_cap,
+                             char *reply, size_t reply_cap);
 
 bool grok_wifi_start(void);
 bool grok_wifi_set(const char *ssid, const char *pass);
@@ -93,8 +97,6 @@ bool grok_ui_is_open(void);
 void grok_ui_set_body(const char *text);
 void grok_ui_page(int delta);
 void grok_ui_set_page(int page);
-/* Show the preset question picker. */
-void grok_ui_open_picker(void);
 /* Show the static bot/team menu. */
 void grok_ui_open_bots(void);
 /* Show the connecting loader (Carty G frames); always at least one cycle. */
@@ -102,9 +104,11 @@ void grok_ui_open_loader(void);
 
 /* Phone typing page (grok_web.c), port 80, off by default. kick starts the
  * server when enabled, Wi-Fi has an IP and (direct mode) BLE is released;
- * down stops it and forgets the PIN; pause/resume stop it around TLS. */
+ * down stops it and forgets the PIN; pause/resume stop it around TLS.
+ * kick does not steal the Grok overlay; show_pin does (explicit entry). */
 void grok_web_init(void);
 void grok_web_kick(void);
+void grok_web_show_pin(void);
 void grok_web_down(void);
 void grok_web_pause(void);
 void grok_web_resume(void);

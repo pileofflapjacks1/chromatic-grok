@@ -436,6 +436,79 @@ void grok_store_clear_question(int idx)
     unlock();
 }
 
+/* Per-bot last prompt: NVS keys "b0".."b3", one packed string each. */
+static void bot_last_key(int idx, char key[4])
+{
+    key[0] = 'b';
+    key[1] = (char)('0' + idx);
+    key[2] = '\0';
+}
+
+bool grok_store_set_bot_last(int idx, const char *prompt, const char *reply)
+{
+    char key[4];
+    char packed[GROK_BOTS_LAST_PACK_MAX + 1];
+    esp_err_t a;
+    esp_err_t b;
+
+    if ((idx < 0) || (idx >= GROK_BOTS_COUNT) || !store_open())
+    {
+        return false;
+    }
+    if ((prompt == NULL) || (prompt[0] == '\0'))
+    {
+        /* Empty prompt: erase the key. */
+        bot_last_key(idx, key);
+        lock();
+        nvs_erase_key(s_nvs, key);
+        nvs_commit(s_nvs);
+        unlock();
+        return true;
+    }
+    if (grok_bots_pack_last(packed, sizeof(packed), prompt, reply) == 0)
+    {
+        return false;
+    }
+    bot_last_key(idx, key);
+    lock();
+    a = nvs_set_str(s_nvs, key, packed);
+    b = nvs_commit(s_nvs);
+    unlock();
+    return (a == ESP_OK) && (b == ESP_OK);
+}
+
+bool grok_store_get_bot_last(int idx, char *prompt, size_t prompt_cap,
+                             char *reply, size_t reply_cap)
+{
+    char key[4];
+    char packed[GROK_BOTS_LAST_PACK_MAX + 1];
+    size_t len = sizeof(packed);
+    esp_err_t err;
+
+    if ((prompt != NULL) && (prompt_cap > 0))
+    {
+        prompt[0] = '\0';
+    }
+    if ((reply != NULL) && (reply_cap > 0))
+    {
+        reply[0] = '\0';
+    }
+    if ((idx < 0) || (idx >= GROK_BOTS_COUNT) || !store_open())
+    {
+        return false;
+    }
+    bot_last_key(idx, key);
+    lock();
+    err = nvs_get_str(s_nvs, key, packed, &len);
+    unlock();
+    if (err != ESP_OK)
+    {
+        return false;
+    }
+    grok_bots_unpack_last(packed, prompt, prompt_cap, reply, reply_cap);
+    return (prompt != NULL) && (prompt[0] != '\0');
+}
+
 static void fill_config(wifi_config_t *cfg)
 {
     memset(cfg, 0, sizeof(*cfg));

@@ -42,7 +42,6 @@ enum {
 
 typedef enum {
     UI_REPLY = 0,
-    UI_PICKER,
     UI_BOTS,
     UI_NOTE,
     UI_LOADER,
@@ -51,7 +50,6 @@ typedef enum {
 typedef struct UiState {
     char body[GROK_REPLY_MAX + 1];
     int page;
-    int pick;      /* question picker selection */
     int bot;       /* bot menu selection */
     UiView_t view;
     bool open;
@@ -74,9 +72,8 @@ static char s_pane_shown[96];
 static const char *s_footer_shown;
 
 static const char kFooterReply[] = "A retry B back U/D";
-static const char kFooterPick[] = "A ask B back U/D";
 static const char kFooterBots[] = "A open B back U/D";
-static const char kFooterNote[] = "A ask B bots";
+static const char kFooterNote[] = "B bots";
 
 static OSD_Widget_t s_widget = {
     .Name = "GrokOverlay",
@@ -290,69 +287,12 @@ static void set_text_visible(bool text_on)
     }
 }
 
-/* Picker page: 8 rows (">1*question"), a blank line, then the selected
- * question wrapped on up to 4 lines. Built only when the state changed,
- * because custom questions are read from NVS. Reuses render()'s scratch. */
-static void render_picker(int pick, char *view, size_t view_cap, char *lines, char *page_text, size_t page_cap)
-{
-    enum { kPreviewLines = kPageLines - GROK_PICK_COUNT - 1 };
-    size_t used = 0;
-    size_t n;
-
-    page_text[0] = '\0';
-    for (int i = 0; i < GROK_PICK_COUNT; i++)
-    {
-        bool custom = false;
-        char row[GROK_TEXT_COLS + 1];
-        size_t len;
-
-        grok_question_get(i, view, view_cap, &custom);
-        /* Built-in rows show the short label; the preview below and the
-         * question that is asked keep the full text. */
-        len = grok_pick_format_row(row, sizeof(row), i, custom ? view : grok_pick_label(i),
-                                   i == pick, custom, GROK_TEXT_COLS);
-        if ((used + len + 2) >= page_cap)
-        {
-            break;
-        }
-        memcpy(page_text + used, row, len);
-        used += len;
-        page_text[used++] = '\n';
-        page_text[used] = '\0';
-    }
-    if ((used + 1) < page_cap)
-    {
-        page_text[used++] = '\n';
-        page_text[used] = '\0';
-    }
-
-    grok_question_get(pick, view, view_cap, NULL);
-    n = grok_text_wrap(view, lines, GROK_TEXT_COLS + 1, kPreviewLines, GROK_TEXT_COLS);
-    for (size_t i = 0; i < n; i++)
-    {
-        const char *line = lines + (i * (GROK_TEXT_COLS + 1));
-        size_t len = strlen(line);
-
-        if ((used + len + 2) >= page_cap)
-        {
-            break;
-        }
-        if (i > 0)
-        {
-            page_text[used++] = '\n';
-        }
-        memcpy(page_text + used, line, len);
-        used += len;
-        page_text[used] = '\0';
-    }
-}
-
 static void render_bots(int bot, char *page_text, size_t page_cap)
 {
     size_t used = 0;
 
     page_text[0] = '\0';
-    for (int i = 0; i < GROK_BOTS_COUNT; i++)
+    for (int i = 0; i < GROK_BOTS_MENU_COUNT; i++)
     {
         char row[GROK_TEXT_COLS + 1];
         size_t len = grok_bots_format_row(row, sizeof(row), i, i == bot, GROK_TEXT_COLS);
@@ -392,7 +332,6 @@ static void render(lv_obj_t *screen)
     bool open;
     bool dirty;
     UiView_t uiview;
-    int pick;
     int bot;
     int page;
     int loader_frame;
@@ -410,7 +349,6 @@ static void render(lv_obj_t *screen)
 
     lock();
     uiview = s_ui.view;
-    pick = s_ui.pick;
     bot = s_ui.bot;
     dirty = s_ui.dirty;
     loader_frame = s_ui.loader_frame;
@@ -475,7 +413,7 @@ static void render(lv_obj_t *screen)
 
     if (uiview == UI_BOTS)
     {
-        set_header("BOT ", bot + 1, GROK_BOTS_COUNT);
+        set_header("BOT ", bot + 1, GROK_BOTS_MENU_COUNT);
         set_footer(kFooterBots);
         if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))
         {
@@ -493,21 +431,13 @@ static void render(lv_obj_t *screen)
         set_footer(kFooterNote);
         if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))
         {
-            grok_bots_format_note(page_text, sizeof(page_text), bot);
-            apply_body(page_text);
-        }
-        lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(s_panel);
-        return;
-    }
+            char prompt[GROK_BOTS_LAST_PROMPT_MAX + 1];
+            char reply[GROK_BOTS_LAST_REPLY_MAX + 1];
 
-    if (uiview == UI_PICKER)
-    {
-        set_header("ASK ", pick + 1, GROK_PICK_COUNT);
-        set_footer(kFooterPick);
-        if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))
-        {
-            render_picker(pick, view, sizeof(view), &lines[0][0], page_text, sizeof(page_text));
+            prompt[0] = '\0';
+            reply[0] = '\0';
+            (void)grok_store_get_bot_last(bot, prompt, sizeof(prompt), reply, sizeof(reply));
+            grok_bots_format_note(page_text, sizeof(page_text), bot, prompt, reply);
             apply_body(page_text);
         }
         lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
@@ -670,10 +600,23 @@ static OSD_Result_t item_transition(void *arg)
 static bool on_inputs(void)
 {
     UiView_t uiview;
+    static bool s_osd_was;
 
     if (!OSD_IsVisible())
     {
+        s_osd_was = false;
         return false;
+    }
+
+    /* Menu (OSD) just opened: go straight to loader -> bot list. */
+    if (!s_osd_was)
+    {
+        s_osd_was = true;
+        if (!grok_ui_is_open())
+        {
+            enter_menu();
+            return true;
+        }
     }
 
     if (!grok_ui_is_open())
@@ -717,12 +660,30 @@ static bool on_inputs(void)
             if ((button == kButton_Up) || (button == kButton_Down))
             {
                 lock();
-                s_ui.bot = grok_bots_step(s_ui.bot, (button == kButton_Up) ? -1 : 1);
+                s_ui.bot = grok_bots_menu_step(s_ui.bot, (button == kButton_Up) ? -1 : 1,
+                                               GROK_BOTS_MENU_COUNT);
                 s_ui.dirty = true;
                 unlock();
             }
             else if (button == kButton_A)
             {
+                int bot_idx;
+
+                lock();
+                bot_idx = s_ui.bot;
+                unlock();
+                if (bot_idx == GROK_BOTS_PHONE_IDX)
+                {
+                    if (!grok_store_set_web(true))
+                    {
+                        grok_ui_set_body("Could not enable\nphone typing.");
+                        return true;
+                    }
+                    grok_web_kick();
+                    grok_web_show_pin();
+                    return true;
+                }
+                grok_bots_select(bot_idx);
                 lock();
                 s_ui.view = UI_NOTE;
                 s_ui.dirty = true;
@@ -738,52 +699,9 @@ static bool on_inputs(void)
         }
         if (uiview == UI_NOTE)
         {
-            if (button == kButton_A)
-            {
-                grok_ui_open_picker();
-                return true;
-            }
-            if ((button == kButton_B) || (button == kButton_Start))
+            if ((button == kButton_B) || (button == kButton_Start) || (button == kButton_A))
             {
                 grok_ui_open_bots();
-                return true;
-            }
-            continue;
-        }
-        if (uiview == UI_PICKER)
-        {
-            /* Up/Down pick, A asks, B goes back to the bot note. */
-            if ((button == kButton_Up) || (button == kButton_Down))
-            {
-                lock();
-                s_ui.pick = grok_pick_step(s_ui.pick, (button == kButton_Up) ? -1 : 1);
-                s_ui.dirty = true;
-                unlock();
-            }
-            else if (button == kButton_A)
-            {
-                char text[GROK_PROMPT_MAX + 1];
-                int pick;
-
-                lock();
-                pick = s_ui.pick;
-                unlock();
-                grok_question_get(pick, text, sizeof(text), NULL);
-                grok_submit_prompt(text); /* shows "..." on the reply view */
-                return true;
-            }
-            else if (button == kButton_B)
-            {
-                lock();
-                s_ui.view = UI_NOTE;
-                s_ui.open = true;
-                s_ui.dirty = true;
-                unlock();
-                return true;
-            }
-            else if (button == kButton_Start)
-            {
-                grok_ui_close();
                 return true;
             }
             continue;
@@ -851,18 +769,13 @@ void grok_ui_open(void)
     unlock();
 }
 
-void grok_ui_open_picker(void)
-{
-    lock();
-    s_ui.view = UI_PICKER;
-    s_ui.open = true;
-    s_ui.dirty = true;
-    unlock();
-}
-
 void grok_ui_open_bots(void)
 {
     lock();
+    if ((s_ui.bot < 0) || (s_ui.bot >= GROK_BOTS_MENU_COUNT))
+    {
+        s_ui.bot = 0;
+    }
     open_bots_locked();
     unlock();
 }
