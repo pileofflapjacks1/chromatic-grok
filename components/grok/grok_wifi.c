@@ -87,6 +87,7 @@ void grok_store_init(void)
     {
         printf("wifi: stored ssid=%s\n", s_ssid);
     }
+    grok_store_load_bot_names();
 }
 
 bool grok_store_set_wifi(const char *ssid, const char *pass)
@@ -507,6 +508,293 @@ bool grok_store_get_bot_last(int idx, char *prompt, size_t prompt_cap,
     }
     grok_bots_unpack_last(packed, prompt, prompt_cap, reply, reply_cap);
     return (prompt != NULL) && (prompt[0] != '\0');
+}
+
+
+/* Real Grok Bot webhook slots: NVS "wu0"/"wk0"/"wn0" .. and relay "rurl"/"rtok". */
+/* GROK_BOT_KEY_MAX in grok_internal.h */
+
+static void bot_url_key(int idx, char key[4])
+{
+    key[0] = 'w';
+    key[1] = 'u';
+    key[2] = (char)('0' + idx);
+    key[3] = '\0';
+}
+
+static void bot_key_key(int idx, char key[4])
+{
+    key[0] = 'w';
+    key[1] = 'k';
+    key[2] = (char)('0' + idx);
+    key[3] = '\0';
+}
+
+static void bot_name_key(int idx, char key[4])
+{
+    key[0] = 'w';
+    key[1] = 'n';
+    key[2] = (char)('0' + idx);
+    key[3] = '\0';
+}
+
+bool grok_store_set_bot(int idx, const char *name, const char *webhook_url,
+                        const char *webhook_key)
+{
+    char uk[4], kk[4], nk[4];
+    esp_err_t a, b, c, d;
+
+    if ((idx < 0) || (idx >= GROK_BOTS_COUNT) || !store_open())
+    {
+        return false;
+    }
+    if ((webhook_url == NULL) || (strncmp(webhook_url, "https://", 8) != 0))
+    {
+        return false;
+    }
+    if ((webhook_key == NULL) || (webhook_key[0] == '\0') ||
+        (strlen(webhook_key) > GROK_BOT_KEY_MAX))
+    {
+        return false;
+    }
+    if (strlen(webhook_url) > GROK_URL_MAX)
+    {
+        return false;
+    }
+    bot_url_key(idx, uk);
+    bot_key_key(idx, kk);
+    bot_name_key(idx, nk);
+    lock();
+    a = nvs_set_str(s_nvs, uk, webhook_url);
+    b = nvs_set_str(s_nvs, kk, webhook_key);
+    if ((name != NULL) && (name[0] != '\0'))
+    {
+        char clipped[GROK_BOTS_NAME_MAX + 1];
+        grok_bots_clip(clipped, sizeof(clipped), name, GROK_BOTS_NAME_MAX);
+        c = nvs_set_str(s_nvs, nk, clipped);
+        grok_bots_set_name(idx, clipped);
+    }
+    else
+    {
+        c = ESP_OK;
+        nvs_erase_key(s_nvs, nk);
+        grok_bots_set_name(idx, NULL);
+    }
+    d = nvs_commit(s_nvs);
+    unlock();
+    return (a == ESP_OK) && (b == ESP_OK) && (c == ESP_OK) && (d == ESP_OK);
+}
+
+bool grok_store_clear_bot(int idx)
+{
+    char uk[4], kk[4], nk[4];
+
+    if ((idx < 0) || (idx >= GROK_BOTS_COUNT) || !store_open())
+    {
+        return false;
+    }
+    bot_url_key(idx, uk);
+    bot_key_key(idx, kk);
+    bot_name_key(idx, nk);
+    lock();
+    nvs_erase_key(s_nvs, uk);
+    nvs_erase_key(s_nvs, kk);
+    nvs_erase_key(s_nvs, nk);
+    nvs_commit(s_nvs);
+    unlock();
+    grok_bots_set_name(idx, NULL);
+    return true;
+}
+
+bool grok_store_bot_configured(int idx)
+{
+    char uk[4];
+    char url[GROK_URL_MAX + 1];
+    size_t len = sizeof(url);
+    esp_err_t err;
+
+    if ((idx < 0) || (idx >= GROK_BOTS_COUNT) || !store_open())
+    {
+        return false;
+    }
+    bot_url_key(idx, uk);
+    lock();
+    err = nvs_get_str(s_nvs, uk, url, &len);
+    unlock();
+    return (err == ESP_OK) && (url[0] != '\0') && (strncmp(url, "https://", 8) == 0);
+}
+
+bool grok_store_get_bot(int idx, char *name, size_t name_cap, char *url,
+                        size_t url_cap, char *key, size_t key_cap)
+{
+    char uk[4], kk[4], nk[4];
+    size_t len;
+    esp_err_t err;
+    bool ok = false;
+
+    if ((name != NULL) && (name_cap > 0))
+    {
+        name[0] = '\0';
+    }
+    if ((url != NULL) && (url_cap > 0))
+    {
+        url[0] = '\0';
+    }
+    if ((key != NULL) && (key_cap > 0))
+    {
+        key[0] = '\0';
+    }
+    if ((idx < 0) || (idx >= GROK_BOTS_COUNT) || !store_open())
+    {
+        return false;
+    }
+    bot_url_key(idx, uk);
+    bot_key_key(idx, kk);
+    bot_name_key(idx, nk);
+    lock();
+    if ((url != NULL) && (url_cap > 0))
+    {
+        len = url_cap;
+        err = nvs_get_str(s_nvs, uk, url, &len);
+        if (err != ESP_OK)
+        {
+            url[0] = '\0';
+        }
+        else
+        {
+            ok = true;
+        }
+    }
+    if ((key != NULL) && (key_cap > 0))
+    {
+        len = key_cap;
+        err = nvs_get_str(s_nvs, kk, key, &len);
+        if (err != ESP_OK)
+        {
+            key[0] = '\0';
+        }
+    }
+    if ((name != NULL) && (name_cap > 0))
+    {
+        len = name_cap;
+        err = nvs_get_str(s_nvs, nk, name, &len);
+        if (err != ESP_OK)
+        {
+            const char *def = grok_bots_default_name(idx);
+            snprintf(name, name_cap, "%s", (def != NULL) ? def : "");
+        }
+    }
+    unlock();
+    return ok && (url != NULL) && (url[0] != '\0');
+}
+
+bool grok_store_set_relay(const char *url, const char *token)
+{
+    esp_err_t a, b, c;
+
+    if (!store_open())
+    {
+        return false;
+    }
+    if ((url == NULL) || (strncmp(url, "https://", 8) != 0) ||
+        (strlen(url) > GROK_URL_MAX))
+    {
+        return false;
+    }
+    if ((token == NULL) || (token[0] == '\0') || (strlen(token) > GROK_TOKEN_MAX))
+    {
+        return false;
+    }
+    lock();
+    a = nvs_set_str(s_nvs, "rurl", url);
+    b = nvs_set_str(s_nvs, "rtok", token);
+    c = nvs_commit(s_nvs);
+    unlock();
+    return (a == ESP_OK) && (b == ESP_OK) && (c == ESP_OK);
+}
+
+void grok_store_clear_relay(void)
+{
+    if (!store_open())
+    {
+        return;
+    }
+    lock();
+    nvs_erase_key(s_nvs, "rurl");
+    nvs_erase_key(s_nvs, "rtok");
+    nvs_commit(s_nvs);
+    unlock();
+}
+
+bool grok_store_get_relay(char *url, size_t url_cap, char *token, size_t token_cap)
+{
+    size_t len;
+    esp_err_t err;
+    bool have = false;
+
+    if ((url != NULL) && (url_cap > 0))
+    {
+        url[0] = '\0';
+    }
+    if ((token != NULL) && (token_cap > 0))
+    {
+        token[0] = '\0';
+    }
+    if (!store_open())
+    {
+        return false;
+    }
+    lock();
+    if ((url != NULL) && (url_cap > 0))
+    {
+        len = url_cap;
+        err = nvs_get_str(s_nvs, "rurl", url, &len);
+        if (err == ESP_OK)
+        {
+            have = (url[0] != '\0');
+        }
+    }
+    if ((token != NULL) && (token_cap > 0))
+    {
+        len = token_cap;
+        err = nvs_get_str(s_nvs, "rtok", token, &len);
+        if (err != ESP_OK)
+        {
+            token[0] = '\0';
+        }
+    }
+    unlock();
+    return have;
+}
+
+bool grok_store_has_relay(void)
+{
+    char url[GROK_URL_MAX + 1];
+    return grok_store_get_relay(url, sizeof(url), NULL, 0);
+}
+
+void grok_store_load_bot_names(void)
+{
+    if (!store_open())
+    {
+        return;
+    }
+    for (int i = 0; i < GROK_BOTS_COUNT; i++)
+    {
+        char nk[4];
+        char name[GROK_BOTS_NAME_MAX + 1];
+        size_t len = sizeof(name);
+        esp_err_t err;
+
+        bot_name_key(i, nk);
+        lock();
+        err = nvs_get_str(s_nvs, nk, name, &len);
+        unlock();
+        if (err == ESP_OK)
+        {
+            grok_bots_set_name(i, name);
+        }
+    }
 }
 
 static void fill_config(wifi_config_t *cfg)

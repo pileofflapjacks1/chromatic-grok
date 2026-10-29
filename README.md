@@ -10,7 +10,7 @@ This is a modified version of the ModRetro Chromatic MCU firmware, distributed u
 
 The Chromatic MCU is an ESP32-U4WDH with 4 MB of flash and no PSRAM. The screen is 160×144. The ESP32 is not on USB directly. The FPGA's composite USB device includes a CDC serial port (USB VID:PID `0x374E:0x0101`, "Chromatic - Player 01") that is bridged to ESP32 UART0, and that port is used for flashing and the `mcu>` console. GPIO9 and GPIO10 are the FPGA UART, so the flash stays in DIO mode.
 
-App version: `0.18.0-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
+App version: `0.19.0-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
 
 Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are not in this firmware.
 
@@ -190,6 +190,9 @@ An empty password means an open network: `wifi set MySSID`. The password is save
 Light sleep is off by default so the association can stay up. Battery life is shorter while that is true. `grok sleep on` allows the stock light sleep again. Wi-Fi and BLE drop when the MCU sleeps. `grok sleep off` stays awake.
 
 ## 6. Talk to Grok
+
+**Grok Bot mode** (The Chief / Awesome Coder via webhook + grok.me relay): see [docs/grok-bot-mode.md](docs/grok-bot-mode.md).
+
 
 The API key stays on a computer you control. The handheld only sends plain HTTP to a URL you set.
 

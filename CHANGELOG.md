@@ -1,3 +1,17 @@
+## 0.19.0-grok (draft, unreleased)
+
+### Added
+- Grok Bot mode for real bots (default names **The Chief**, **Awesome Coder**): `grok bot set <slot> <name> <https-url> <key>`, `grok bot relay <https-url> <token>`, `grok bot list|clear` (keys/tokens never printed in full).
+- Device POSTs `{text,device_id,msg_id}` to the bot webhook (HTTPS + cert bundle), then polls the relay `GET /v1/reply` every ~5 s (timeout ~5 min) with loader text "Bot is working...".
+- After a reply: show snippet + 3 suggestions + "Wait / do nothing"; picking a suggestion sends it as the next prompt. Last prompt/reply still in NVS `b0`..`b3`.
+- Bot menu: existing on-device rows, **Ask Grok** fast mode (proxy/direct), **Phone typing**.
+- `relay/`: minimal Python reply mailbox for grok.me (POST/GET `/v1/reply`, env tokens, 1 h TTL, size + rate limits) with host tests.
+- `docs/grok-bot-mode.md`: Joe setup + exact routine prompt text to paste.
+- Host tests: JSON build/parse + poll state machine (`tests/test_grok_bot_proto.c`), relay tests.
+
+### Changed
+- App version `0.19.0-grok`. Menu firmware string stays `4.6g`. Partition table, bootloader and signing key unchanged.
+
 ## 0.18.0-grok (draft, unreleased)
 
 ### Added

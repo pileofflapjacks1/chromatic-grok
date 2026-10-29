@@ -11,4 +11,5 @@ Modified ModRetro Chromatic MCU firmware. Upstream is `upstream` (https://github
 - Phone typing (`grok web`, `components/grok/grok_web.c`): plain HTTP on port 80, off by default, 6-digit PIN with lockout. Never serve or log the key or token. In direct mode the server must stay stopped during TLS (`grok_web_pause/resume`). Portable helpers are in `grok_web_util.c` and host-tested.
 - Light sleep is skipped while `Grok_WantsRadioAwake()` is true. Default is awake.
 - Host checks: `sh tests/run_host.sh`. That is not an IDF build and not a hardware test.
+- Grok Bot mode (`docs/grok-bot-mode.md`, `relay/`): webhook + grok.me relay. Tokens/keys in NVS/env only; never print full secrets. Do not publish the relay or create bot routines unless Joe asks.
 - `web/` is the browser companion (TanStack Start). It is not part of the ESP-IDF build. `cd web && npm test && npm run build`.

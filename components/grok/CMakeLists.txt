@@ -4,6 +4,8 @@ idf_component_register(
         "grok_text.c"
         "grok_pick.c"
         "grok_bots.c"
+        "grok_bot_proto.c"
+        "grok_bot_net.c"
         "grok_loader.c"
         "grok_loader_frames.c"
         "grok_wifi.c"
