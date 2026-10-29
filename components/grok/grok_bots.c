@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* const: names stay in flash (.rodata). No network; no Grok Bot API. */
+/* const: default names stay in flash (.rodata). */
 static const char *const kName[GROK_BOTS_COUNT] = {
     "Carty G",
     "The Chief",
@@ -14,7 +14,18 @@ static const char *const kName[GROK_BOTS_COUNT] = {
     "Chromatic Add-ons",
 };
 
+static char s_override[GROK_BOTS_COUNT][GROK_BOTS_NAME_MAX + 1];
 static int s_selected;
+static bool s_fast;
+
+const char *grok_bots_default_name(int idx)
+{
+    if ((idx < 0) || (idx >= GROK_BOTS_COUNT))
+    {
+        return NULL;
+    }
+    return kName[idx];
+}
 
 const char *grok_bots_name(int idx)
 {
@@ -22,7 +33,25 @@ const char *grok_bots_name(int idx)
     {
         return NULL;
     }
+    if (s_override[idx][0] != '\0')
+    {
+        return s_override[idx];
+    }
     return kName[idx];
+}
+
+void grok_bots_set_name(int idx, const char *name)
+{
+    if ((idx < 0) || (idx >= GROK_BOTS_COUNT))
+    {
+        return;
+    }
+    if ((name == NULL) || (name[0] == '\0'))
+    {
+        s_override[idx][0] = '\0';
+        return;
+    }
+    grok_bots_clip(s_override[idx], sizeof(s_override[idx]), name, GROK_BOTS_NAME_MAX);
 }
 
 void grok_bots_select(int idx)
@@ -32,11 +61,22 @@ void grok_bots_select(int idx)
         return;
     }
     s_selected = idx;
+    s_fast = false;
 }
 
 int grok_bots_selected(void)
 {
     return s_selected;
+}
+
+void grok_bots_set_fast(bool on)
+{
+    s_fast = on;
+}
+
+bool grok_bots_fast(void)
+{
+    return s_fast;
 }
 
 int grok_bots_menu_step(int cur, int delta, int menu_count)
@@ -83,6 +123,10 @@ size_t grok_bots_format_row(char *out, size_t cap, int idx, bool selected,
     if (idx == GROK_BOTS_PHONE_IDX)
     {
         name = "Phone typing";
+    }
+    else if (idx == GROK_BOTS_ASK_IDX)
+    {
+        name = "Ask Grok";
     }
     else
     {
@@ -233,7 +277,6 @@ size_t grok_bots_format_note(char *out, size_t cap, int idx,
     }
     else
     {
-        /* Prompt, then a short reply snippet if it still fits the note. */
         n = snprintf(out, cap, "%s\n\nWhere we left off:\n%s\n\n%s", name, p, r);
         if ((n < 0) || ((size_t)n >= cap))
         {

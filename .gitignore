@@ -14,3 +14,5 @@ web/.env
 *.pem
 !keys/*.pub.pem
 !keys/*signature_verification_key.bin
+__pycache__/
+*.pyc

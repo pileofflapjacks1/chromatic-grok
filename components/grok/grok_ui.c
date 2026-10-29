@@ -5,6 +5,7 @@
 #include "grok_internal.h"
 
 #include "grok_bots.h"
+#include "grok_bot_proto.h"
 #include "grok_loader.h"
 
 #include "button.h"
@@ -45,12 +46,15 @@ typedef enum {
     UI_BOTS,
     UI_NOTE,
     UI_LOADER,
+    UI_SUGGEST,
 } UiView_t;
 
 typedef struct UiState {
     char body[GROK_REPLY_MAX + 1];
     int page;
     int bot;       /* bot menu selection */
+    int opt;       /* suggestion picker index 0..3 */
+    GrokBotReply_t suggest;
     UiView_t view;
     bool open;
     bool dirty;
@@ -73,7 +77,8 @@ static const char *s_footer_shown;
 
 static const char kFooterReply[] = "A retry B back U/D";
 static const char kFooterBots[] = "A open B back U/D";
-static const char kFooterNote[] = "B bots";
+static const char kFooterNote[] = "A ask B bots";
+static const char kFooterSuggest[] = "A pick B back U/D";
 
 static OSD_Widget_t s_widget = {
     .Name = "GrokOverlay",
@@ -445,6 +450,58 @@ static void render(lv_obj_t *screen)
         return;
     }
 
+    if (uiview == UI_SUGGEST)
+    {
+        int opt;
+        GrokBotReply_t sug;
+
+        lock();
+        opt = s_ui.opt;
+        sug = s_ui.suggest;
+        unlock();
+        set_header("NEXT ", opt + 1, GROK_BOT_SUGGEST_COUNT + 1);
+        set_footer(kFooterSuggest);
+        if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))
+        {
+            size_t used = 0;
+            page_text[0] = '\0';
+            /* Reply snippet on top, then 4 options. */
+            {
+                size_t len = strlen(sug.reply);
+                if (len > GROK_TEXT_COLS)
+                {
+                    len = GROK_TEXT_COLS;
+                }
+                if ((used + len + 2) < sizeof(page_text))
+                {
+                    memcpy(page_text + used, sug.reply, len);
+                    used += len;
+                    page_text[used++] = '\n';
+                    page_text[used++] = '\n';
+                    page_text[used] = '\0';
+                }
+            }
+            for (int i = 0; i < (GROK_BOT_SUGGEST_COUNT + 1); i++)
+            {
+                char row[GROK_TEXT_COLS + 1];
+                size_t len = grok_bot_format_option(row, sizeof(row), i, i == opt, &sug,
+                                                   GROK_TEXT_COLS);
+                if ((used + len + 2) >= sizeof(page_text))
+                {
+                    break;
+                }
+                memcpy(page_text + used, row, len);
+                used += len;
+                page_text[used++] = '\n';
+                page_text[used] = '\0';
+            }
+            apply_body(page_text);
+        }
+        lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(s_panel);
+        return;
+    }
+
     set_footer(kFooterReply);
 
     nlines = grok_text_wrap(view, &lines[0][0], GROK_TEXT_COLS + 1, GROK_TEXT_LINES, GROK_TEXT_COLS);
@@ -683,6 +740,12 @@ static bool on_inputs(void)
                     grok_web_show_pin();
                     return true;
                 }
+                if (bot_idx == GROK_BOTS_ASK_IDX)
+                {
+                    grok_bots_set_fast(true);
+                    grok_ui_set_body("Ask Grok\n\nPhone typing or\ngrok ask <text>");
+                    return true;
+                }
                 grok_bots_select(bot_idx);
                 lock();
                 s_ui.view = UI_NOTE;
@@ -699,7 +762,79 @@ static bool on_inputs(void)
         }
         if (uiview == UI_NOTE)
         {
-            if ((button == kButton_B) || (button == kButton_Start) || (button == kButton_A))
+            if (button == kButton_A)
+            {
+                int bot_idx;
+                char prompt[GROK_BOTS_LAST_PROMPT_MAX + 1];
+                char reply[GROK_BOTS_LAST_REPLY_MAX + 1];
+
+                lock();
+                bot_idx = s_ui.bot;
+                unlock();
+                prompt[0] = '\0';
+                reply[0] = '\0';
+                (void)grok_store_get_bot_last(bot_idx, prompt, sizeof(prompt),
+                                             reply, sizeof(reply));
+                if (prompt[0] != '\0')
+                {
+                    grok_bots_select(bot_idx);
+                    grok_submit_prompt(prompt);
+                }
+                else if (grok_store_bot_configured(bot_idx))
+                {
+                    grok_ui_set_body("Type a prompt:\nphone or\ngrok ask <text>");
+                }
+                else
+                {
+                    grok_bots_set_fast(true);
+                    grok_ui_set_body("Ask Grok\n\nPhone typing or\ngrok ask <text>");
+                }
+                return true;
+            }
+            if ((button == kButton_B) || (button == kButton_Start))
+            {
+                grok_ui_open_bots();
+                return true;
+            }
+            continue;
+        }
+        if (uiview == UI_SUGGEST)
+        {
+            if ((button == kButton_Up) || (button == kButton_Down))
+            {
+                lock();
+                s_ui.opt = grok_bots_menu_step(s_ui.opt, (button == kButton_Up) ? -1 : 1,
+                                               GROK_BOT_SUGGEST_COUNT + 1);
+                s_ui.dirty = true;
+                unlock();
+            }
+            else if (button == kButton_A)
+            {
+                int opt;
+                char text[GROK_BOT_SUGGEST_MAX + 1];
+
+                lock();
+                opt = s_ui.opt;
+                if ((opt >= 0) && (opt < GROK_BOT_SUGGEST_COUNT))
+                {
+                    snprintf(text, sizeof(text), "%s", s_ui.suggest.suggest[opt]);
+                }
+                else
+                {
+                    text[0] = '\0';
+                }
+                unlock();
+                if (text[0] != '\0')
+                {
+                    grok_submit_prompt(text);
+                }
+                else
+                {
+                    grok_ui_open_bots();
+                }
+                return true;
+            }
+            else if ((button == kButton_B) || (button == kButton_Start))
             {
                 grok_ui_open_bots();
                 return true;
@@ -777,6 +912,25 @@ void grok_ui_open_bots(void)
         s_ui.bot = 0;
     }
     open_bots_locked();
+    unlock();
+}
+
+
+void grok_ui_open_suggest(const GrokBotReply_t *reply)
+{
+    lock();
+    if (reply != NULL)
+    {
+        s_ui.suggest = *reply;
+    }
+    else
+    {
+        memset(&s_ui.suggest, 0, sizeof(s_ui.suggest));
+    }
+    s_ui.opt = 0;
+    s_ui.view = UI_SUGGEST;
+    s_ui.open = true;
+    s_ui.dirty = true;
     unlock();
 }
 

@@ -5,6 +5,7 @@
 
 #include "grok_pick.h"
 #include "grok_bots.h"
+#include "grok_bot_proto.h"
 #include "grok_text.h"
 
 #include <stddef.h>
@@ -65,6 +66,25 @@ bool grok_question_get(int idx, char *out, size_t out_cap, bool *custom);
 bool grok_store_set_bot_last(int idx, const char *prompt, const char *reply);
 bool grok_store_get_bot_last(int idx, char *prompt, size_t prompt_cap,
                              char *reply, size_t reply_cap);
+/* Real Grok Bot webhook config (NVS wuN/wkN/wnN) + relay (rurl/rtok). */
+#define GROK_BOT_KEY_MAX 128
+bool grok_store_set_bot(int idx, const char *name, const char *webhook_url,
+                        const char *webhook_key);
+bool grok_store_clear_bot(int idx);
+bool grok_store_bot_configured(int idx);
+bool grok_store_get_bot(int idx, char *name, size_t name_cap, char *url,
+                        size_t url_cap, char *key, size_t key_cap);
+bool grok_store_set_relay(const char *url, const char *token);
+void grok_store_clear_relay(void);
+bool grok_store_get_relay(char *url, size_t url_cap, char *token, size_t token_cap);
+bool grok_store_has_relay(void);
+void grok_store_load_bot_names(void);
+
+/* HTTPS webhook POST + relay poll (BLE must be stopped for TLS). */
+bool grok_bot_ask(const char *webhook_url, const char *webhook_key,
+                  const char *relay_url, const char *relay_token,
+                  const char *text, const char *device_id, const char *msg_id,
+                  GrokBotReply_t *out, char *err, size_t err_cap);
 
 bool grok_wifi_start(void);
 bool grok_wifi_set(const char *ssid, const char *pass);
@@ -101,6 +121,8 @@ void grok_ui_set_page(int page);
 void grok_ui_open_bots(void);
 /* Show the connecting loader (Carty G frames); always at least one cycle. */
 void grok_ui_open_loader(void);
+/* Show reply + 3 suggestions + wait option. */
+void grok_ui_open_suggest(const GrokBotReply_t *reply);
 
 /* Phone typing page (grok_web.c), port 80, off by default. kick starts the
  * server when enabled, Wi-Fi has an IP and (direct mode) BLE is released;

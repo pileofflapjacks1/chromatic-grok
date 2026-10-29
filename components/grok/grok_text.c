@@ -587,13 +587,19 @@ size_t grok_text_redact(const char *in, const char *secret, char *out, size_t ou
  * (followed by whitespace) before buf[pos]. */
 bool grok_text_secret_at(const char *buf, size_t pos)
 {
-    static const char *const kRules[][3] = {
-        { "grok", "key", "set" },
-        { "grok", "token", "set" },
-        { "wifi", "set", NULL },   /* NULL: any word (the SSID) */
+    /* After this many complete words, the rest is secret. */
+    static const struct {
+        const char *w[4];
+        size_t need;
+    } kRules[] = {
+        { { "grok", "key", "set", NULL }, 3 },
+        { { "grok", "token", "set", NULL }, 3 },
+        { { "wifi", "set", NULL, NULL }, 3 }, /* after SSID */
+        { { "grok", "bot", "set", NULL }, 6 }, /* after slot name url -> key */
+        { { "grok", "bot", "relay", NULL }, 4 }, /* after url -> token */
     };
-    size_t start[3];
-    size_t len[3];
+    size_t start[8];
+    size_t len[8];
     size_t done = 0;
     size_t i = 0;
 
@@ -601,7 +607,7 @@ bool grok_text_secret_at(const char *buf, size_t pos)
     {
         return false;
     }
-    while ((i < pos) && (done < 3))
+    while ((i < pos) && (done < 8))
     {
         size_t s;
 
@@ -626,19 +632,24 @@ bool grok_text_secret_at(const char *buf, size_t pos)
         len[done] = i - s;
         done++;
     }
-    if (done < 3)
-    {
-        return false;
-    }
     for (size_t r = 0; r < (sizeof(kRules) / sizeof(kRules[0])); r++)
     {
         bool match = true;
+        size_t need = kRules[r].need;
 
-        for (size_t w = 0; w < 3; w++)
+        if (done < need)
         {
-            const char *want = kRules[r][w];
+            continue;
+        }
+        for (size_t w = 0; w < 4; w++)
+        {
+            const char *want = kRules[r].w[w];
 
-            if ((want != NULL) && ((strlen(want) != len[w]) || (strncmp(buf + start[w], want, len[w]) != 0)))
+            if (want == NULL)
+            {
+                break;
+            }
+            if ((strlen(want) != len[w]) || (strncmp(buf + start[w], want, len[w]) != 0))
             {
                 match = false;
                 break;

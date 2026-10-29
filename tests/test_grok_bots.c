@@ -35,8 +35,9 @@ static void test_bots(void)
     };
 
     expect_true("count", GROK_BOTS_COUNT == 4);
-    expect_true("menu count", GROK_BOTS_MENU_COUNT == 5);
-    expect_true("phone idx", GROK_BOTS_PHONE_IDX == 4);
+    expect_true("menu count", GROK_BOTS_MENU_COUNT == 6);
+    expect_true("ask idx", GROK_BOTS_ASK_IDX == 4);
+    expect_true("phone idx", GROK_BOTS_PHONE_IDX == 5);
     expect_true("name max fits row",
                 (GROK_BOTS_ROW_PREFIX + GROK_BOTS_NAME_MAX) == GROK_TEXT_COLS);
     expect_true("pack fits", GROK_BOTS_LAST_PACK_MAX <= 121);
@@ -57,7 +58,10 @@ static void test_bots(void)
     }
 
     grok_bots_format_row(row, sizeof(row), GROK_BOTS_PHONE_IDX, true, GROK_TEXT_COLS);
-    expect_true("phone row", strcmp(row, ">5 Phone typing") == 0);
+    grok_bots_format_row(row, sizeof(row), GROK_BOTS_ASK_IDX, false, GROK_TEXT_COLS);
+    expect_true("ask row", strstr(row, "Ask Grok") != NULL);
+    grok_bots_format_row(row, sizeof(row), GROK_BOTS_PHONE_IDX, true, GROK_TEXT_COLS);
+    expect_true("phone row", strcmp(row, ">6 Phone typing") == 0);
 
     expect_true("name range lo", grok_bots_name(-1) == NULL);
     expect_true("name range hi", grok_bots_name(GROK_BOTS_COUNT) == NULL);
@@ -66,8 +70,11 @@ static void test_bots(void)
     expect_true("step wrap up", grok_bots_step(0, -1) == GROK_BOTS_COUNT - 1);
     expect_true("menu wrap phone",
                 grok_bots_menu_step(GROK_BOTS_PHONE_IDX, 1, GROK_BOTS_MENU_COUNT) == 0);
-    expect_true("menu to phone",
+    expect_true("menu to ask",
                 grok_bots_menu_step(GROK_BOTS_COUNT - 1, 1, GROK_BOTS_MENU_COUNT) ==
+                    GROK_BOTS_ASK_IDX);
+    expect_true("menu to phone",
+                grok_bots_menu_step(GROK_BOTS_ASK_IDX, 1, GROK_BOTS_MENU_COUNT) ==
                     GROK_BOTS_PHONE_IDX);
 
     grok_bots_format_row(row, sizeof(row), 0, true, GROK_TEXT_COLS);
@@ -111,6 +118,15 @@ static void test_bots(void)
     grok_bots_format_note(note, sizeof(note), 1, "Only prompt", "");
     expect_true("note prompt only", strstr(note, "Only prompt") != NULL);
     expect_true("note no reply blank", strstr(note, "\n\n\n") == NULL);
+
+    grok_bots_set_name(1, "Chief X");
+    expect_true("override", strcmp(grok_bots_name(1), "Chief X") == 0);
+    grok_bots_set_name(1, NULL);
+    expect_true("restore", strcmp(grok_bots_name(1), "The Chief") == 0);
+    grok_bots_set_fast(true);
+    expect_true("fast on", grok_bots_fast());
+    grok_bots_select(0);
+    expect_true("fast off on select", !grok_bots_fast());
 }
 
 int main(void)

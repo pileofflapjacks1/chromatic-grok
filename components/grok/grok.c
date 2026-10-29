@@ -8,6 +8,8 @@
 #include "grok_ota_util.h"
 
 #include "esp_console.h"
+#include "esp_mac.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -39,6 +41,7 @@ static bool s_save_bot_last;
 static char s_last[GROK_PROMPT_MAX + 1];
 static char s_show[GROK_REPLY_MAX + 1];
 static char s_folded[GROK_REPLY_MAX + 1];
+static uint32_t s_msg_seq;
 
 static void lock(void)
 {
@@ -471,9 +474,139 @@ static void wifi_usage(void)
     grok_say("wifi: status | connect | disconnect | clear | set <ssid> <password>\n");
 }
 
+
+static void make_device_id(char *out, size_t cap)
+{
+    uint8_t mac[6];
+
+    if ((out == NULL) || (cap < 13))
+    {
+        return;
+    }
+    if (esp_read_mac(mac, ESP_MAC_WIFI_STA) != ESP_OK)
+    {
+        snprintf(out, cap, "unknown");
+        return;
+    }
+    snprintf(out, cap, "%02x%02x%02x%02x%02x%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+static void make_msg_id(char *out, size_t cap)
+{
+    s_msg_seq++;
+    snprintf(out, cap, "%lu-%lu",
+             (unsigned long)(esp_timer_get_time() / 1000),
+             (unsigned long)s_msg_seq);
+}
+
+static void cmd_bot(int argc, char **argv)
+{
+    if ((argc >= 3) && (strcmp(argv[2], "list") == 0))
+    {
+        char rurl[GROK_URL_MAX + 1];
+        char rtok[GROK_TOKEN_MAX + 1];
+        char masked[24];
+        char line[GROK_URL_MAX + 32];
+
+        grok_store_get_relay(rurl, sizeof(rurl), rtok, sizeof(rtok));
+        grok_bot_mask_secret(masked, sizeof(masked), rtok);
+        snprintf(line, sizeof(line), "grok: relay token=%s\n", masked);
+        grok_say(line);
+        snprintf(line, sizeof(line), "grok: relay url=%s\n",
+                 (rurl[0] != '\0') ? rurl : "(unset)");
+        grok_say(line);
+        memset(rtok, 0, sizeof(rtok));
+        for (int i = 0; i < GROK_BOTS_COUNT; i++)
+        {
+            char name[GROK_BOTS_NAME_MAX + 1];
+            char url[GROK_URL_MAX + 1];
+            char key[GROK_BOT_KEY_MAX + 1];
+            bool have = grok_store_get_bot(i, name, sizeof(name), url, sizeof(url),
+                                          key, sizeof(key));
+            grok_bot_mask_secret(masked, sizeof(masked), key);
+            snprintf(line, sizeof(line), "grok: bot %d %s key=%s\n",
+                     i + 1,
+                     (name[0] != '\0') ? name : "?",
+                     have ? masked : "(unset)");
+            grok_say(line);
+            snprintf(line, sizeof(line), "grok: bot %d url=%s\n",
+                     i + 1, have ? url : "(no webhook)");
+            grok_say(line);
+            memset(key, 0, sizeof(key));
+        }
+        return;
+    }
+    if ((argc >= 3) && (strcmp(argv[2], "relay") == 0))
+    {
+        if ((argc == 4) && (strcmp(argv[3], "clear") == 0))
+        {
+            grok_store_clear_relay();
+            grok_say("grok: relay cleared\n");
+            return;
+        }
+        if (argc >= 5)
+        {
+            if (!grok_store_set_relay(argv[3], argv[4]))
+            {
+                grok_say("grok: relay needs https:// url and token\n");
+                return;
+            }
+            memset(argv[4], 0, strlen(argv[4]));
+            grok_say("grok: relay saved\n");
+            return;
+        }
+        grok_say("grok bot relay <https-url> <token> | clear\n");
+        return;
+    }
+    if ((argc >= 3) && (strcmp(argv[2], "clear") == 0) && (argc >= 4) && is_number(argv[3]))
+    {
+        int slot = 0;
+        for (const char *p = argv[3]; *p; p++)
+        {
+            slot = slot * 10 + (*p - '0');
+        }
+        if ((slot < 1) || (slot > GROK_BOTS_COUNT))
+        {
+            grok_say("grok: bot slot 1..4\n");
+            return;
+        }
+        grok_store_clear_bot(slot - 1);
+        grok_say("grok: bot cleared\n");
+        return;
+    }
+    if ((argc >= 3) && (strcmp(argv[2], "set") == 0))
+    {
+        int slot = 0;
+        if ((argc < 7) || !is_number(argv[3]))
+        {
+            grok_say("grok bot set <slot> <name> <https-url> <key>\n");
+            return;
+        }
+        for (const char *p = argv[3]; *p; p++)
+        {
+            slot = slot * 10 + (*p - '0');
+        }
+        if ((slot < 1) || (slot > GROK_BOTS_COUNT))
+        {
+            grok_say("grok: bot slot 1..4\n");
+            return;
+        }
+        if (!grok_store_set_bot(slot - 1, argv[4], argv[5], argv[6]))
+        {
+            grok_say("grok: bot set failed (need https:// url + key)\n");
+            return;
+        }
+        memset(argv[6], 0, strlen(argv[6]));
+        grok_say("grok: bot saved\n");
+        return;
+    }
+    grok_say("grok bot list | set <slot> <name> <url> <key> | clear <slot> | relay <url> <token>|clear\n");
+}
+
 static void grok_usage(void)
 {
-    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | bots | q list|set <n> <text>|clear <n>|ask <n> | web on|off|status | ble unpair | update [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
+    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | bots | bot list|set|clear|relay | q list|set <n> <text>|clear <n>|ask <n> | web on|off|status | ble unpair | update [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
 }
 
 static void cmd_wifi(int argc, char **argv)
@@ -693,9 +826,14 @@ static void cmd_grok(int argc, char **argv)
         grok_web_mem_print();
         return;
     }
+    if (strcmp(argv[1], "bot") == 0)
+    {
+        cmd_bot(argc, argv);
+        return;
+    }
     if (strcmp(argv[1], "bots") == 0)
     {
-        /* Static on-device list. No Grok Bot API. */
+        /* On-device list + configured webhook bots. */
         for (int i = 0; i < GROK_BOTS_COUNT; i++)
         {
             const char *name = grok_bots_name(i);
@@ -954,6 +1092,61 @@ static void radio_task(void *arg)
             continue;
         }
 
+        /* Real Grok Bot webhook path when the selected bot is configured
+         * and Ask Grok fast mode is off. */
+        if (!grok_bots_fast() && grok_store_bot_configured(grok_bots_selected()))
+        {
+            char wurl[GROK_URL_MAX + 1];
+            char wkey[GROK_BOT_KEY_MAX + 1];
+            char rurl[GROK_URL_MAX + 1];
+            char rtok[GROK_TOKEN_MAX + 1];
+            char name[GROK_BOTS_NAME_MAX + 1];
+            char device_id[GROK_BOT_DEVICE_ID_MAX];
+            char msg_id[GROK_BOT_MSG_ID_MAX];
+            char err[96];
+            GrokBotReply_t bot_reply;
+
+            if (!grok_ble_released() && !grok_ble_stop())
+            {
+                grok_publish("ble did not stop; reboot and retry");
+                continue;
+            }
+            if (!grok_store_get_bot(grok_bots_selected(), name, sizeof(name),
+                                   wurl, sizeof(wurl), wkey, sizeof(wkey)))
+            {
+                memset(wkey, 0, sizeof(wkey));
+                grok_publish("bot webhook missing");
+                continue;
+            }
+            if (!grok_store_get_relay(rurl, sizeof(rurl), rtok, sizeof(rtok)))
+            {
+                memset(wkey, 0, sizeof(wkey));
+                memset(rtok, 0, sizeof(rtok));
+                grok_publish("no bot relay. grok bot relay <url> <token>");
+                continue;
+            }
+            make_device_id(device_id, sizeof(device_id));
+            make_msg_id(msg_id, sizeof(msg_id));
+            grok_web_pause();
+            if (grok_bot_ask(wurl, wkey, rurl, rtok, job.prompt, device_id, msg_id,
+                             &bot_reply, err, sizeof(err)))
+            {
+                grok_publish(bot_reply.reply);
+                if (bot_reply.suggest_n > 0)
+                {
+                    grok_ui_open_suggest(&bot_reply);
+                }
+            }
+            else
+            {
+                grok_publish((err[0] != '\0') ? err : "bot ask failed");
+            }
+            memset(wkey, 0, sizeof(wkey));
+            memset(rtok, 0, sizeof(rtok));
+            grok_web_resume();
+            continue;
+        }
+
         if (grok_store_get_mode() == GROK_MODE_DIRECT)
         {
             char key[GROK_XAI_KEY_MAX + 1];
@@ -1014,7 +1207,7 @@ static void register_commands(void)
     };
     const esp_console_cmd_t grok_cmd = {
         .command = "grok",
-        .help = "Grok link: status, ask, bots, q, show, url, token, mode, key, mem, web, update, page, open, close, retry, sleep",
+        .help = "Grok link: status, ask, bots, bot, q, show, url, token, mode, key, mem, web, update, page, open, close, retry, sleep",
         .hint = NULL,
         .func = &cmd_entry,
     };
