@@ -1,0 +1,11 @@
+{
+  "name": "chromatic-grok-web-flasher",
+  "private": true,
+  "type": "module",
+  "description": "Static browser installer for the Chromatic ESP32. No build step, no dependencies.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "serve": "python3 -m http.server 8080 --bind 127.0.0.1"
+  },
+  "license": "GPL-3.0-only"
+}

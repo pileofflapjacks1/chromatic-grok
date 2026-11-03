@@ -36,6 +36,7 @@
 - `docs/REINSTALL.md`: USB reinstall, backup restore, back to ModRetro firmware, signing-key backup.
 - `keys/joe_signing.pub.pem`: the only trusted update key (Joe's release key, id `13b86339c36256da`). Public keys only in git. `tools/pubkey_pem_to_bin.py` converts a public PEM to the raw form the build embeds.
 - Browser companion in `web/`. It asks xAI from the server and sends `grok show` over USB. A local, editable Grok Bot list picks the voice for the next question.
+- Draft browser installer in `web/flasher/` (Web Serial, esptool-js 0.5.7): backup, install to 0x8000/0x10000 only, and restore. Untested on hardware, not deployed.
 
 ### Changed
 - App version `0.15.0-grok` (`fwversion`). Menu firmware string stays `4.6g`.
