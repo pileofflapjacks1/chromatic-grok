@@ -98,7 +98,14 @@ static bool read_escape(void)
 static void run_line(char *line)
 {
     int ret = 0;
-    esp_err_t err = esp_console_run(line, &ret);
+    esp_err_t err;
+
+    /* Framed VOICE_* lines and "voice ..." verbs bypass esp_console. */
+    if (grok_voice_handle_line(line))
+    {
+        return;
+    }
+    err = esp_console_run(line, &ret);
 
     if (err == ESP_ERR_NOT_FOUND)
     {

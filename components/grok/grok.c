@@ -56,6 +56,7 @@ static void unlock(void)
 }
 
 static int cmd_entry(int argc, char **argv);
+static void cmd_voice(int argc, char **argv);
 static void radio_task(void *arg);
 
 bool Grok_WantsRadioAwake(void)
@@ -828,7 +829,7 @@ void grok_exec(int argc, char **argv)
 {
     if ((argc < 1) || (argv == NULL) || (argv[0] == NULL))
     {
-        grok_say("commands: wifi, grok\n");
+        grok_say("commands: wifi, grok, voice\n");
         return;
     }
     if (strcmp(argv[0], "wifi") == 0)
@@ -841,7 +842,12 @@ void grok_exec(int argc, char **argv)
         cmd_grok(argc, argv);
         return;
     }
-    grok_say("commands: wifi, grok\n");
+    if (strcmp(argv[0], "voice") == 0)
+    {
+        cmd_voice(argc, argv);
+        return;
+    }
+    grok_say("commands: wifi, grok, voice\n");
 }
 
 void grok_exec_line(char *line)
@@ -858,6 +864,10 @@ void grok_exec_line(char *line)
         line++;
     }
     if (*line == '\0')
+    {
+        return;
+    }
+    if (grok_voice_handle_line(line))
     {
         return;
     }
@@ -979,6 +989,123 @@ static void radio_task(void *arg)
     }
 }
 
+static void voice_report_ready(void)
+{
+    char line[64];
+    const char *name = grok_bots_name(grok_ui_voice_bot_index());
+
+    grok_voice_format_bot_line(line, sizeof(line), name);
+    grok_say(line);
+    grok_say(GROK_VOICE_READY "\n");
+}
+
+static void cmd_voice(int argc, char **argv)
+{
+    if (argc < 1)
+    {
+        return;
+    }
+    if (argc == 1)
+    {
+        grok_ui_open_voice();
+        voice_report_ready();
+        return;
+    }
+    if (strcmp(argv[1], "listening") == 0)
+    {
+        grok_ui_voice_listening();
+        grok_say("voice: listening\n");
+        return;
+    }
+    if (strcmp(argv[1], "thinking") == 0)
+    {
+        grok_ui_voice_thinking();
+        grok_say("voice: thinking\n");
+        return;
+    }
+    if (strcmp(argv[1], "next") == 0)
+    {
+        grok_ui_voice_caption_step(1);
+        return;
+    }
+    if (strcmp(argv[1], "prev") == 0)
+    {
+        grok_ui_voice_caption_step(-1);
+        return;
+    }
+    if (strcmp(argv[1], "close") == 0)
+    {
+        grok_ui_close();
+        grok_say("voice: closed\n");
+        return;
+    }
+    if (strcmp(argv[1], "bot") == 0)
+    {
+        grok_ui_voice_report_bot();
+        return;
+    }
+    grok_say("voice: [listening|thinking|next|prev|bot|close]\n");
+}
+
+bool grok_voice_handle_line(const char *line)
+{
+    static GrokVoiceParser_t s_voice_parser;
+    static bool s_voice_parser_ready;
+    GrokVoiceEvt_t ev;
+    char *argv[8];
+    char buf[GROK_VOICE_LINE_MAX + 1];
+    int argc;
+
+    if (line == NULL)
+    {
+        return false;
+    }
+    if (!s_voice_parser_ready)
+    {
+        grok_voice_parser_init(&s_voice_parser);
+        s_voice_parser_ready = true;
+    }
+
+    /* Framed reply body. */
+    if ((strcmp(line, GROK_VOICE_BEGIN) == 0) ||
+        (strcmp(line, GROK_VOICE_END) == 0) ||
+        s_voice_parser.in_frame)
+    {
+        ev = grok_voice_parser_feed_line(&s_voice_parser, line);
+        if (ev == GROK_VOICE_EVT_BEGIN)
+        {
+            grok_ui_voice_thinking();
+            return true;
+        }
+        if (ev == GROK_VOICE_EVT_BODY_LINE)
+        {
+            return true;
+        }
+        if (ev == GROK_VOICE_EVT_END)
+        {
+            grok_ui_voice_set_reply(s_voice_parser.body);
+            grok_say("voice: reply\n");
+            return true;
+        }
+        if (ev == GROK_VOICE_EVT_OVERFLOW)
+        {
+            grok_say("voice: overflow\n");
+            grok_voice_parser_init(&s_voice_parser);
+            return true;
+        }
+        return true;
+    }
+
+    if (!grok_voice_is_cmd_line(line))
+    {
+        return false;
+    }
+    snprintf(buf, sizeof(buf), "%s", line);
+    argc = split_args(buf, argv, 8);
+    cmd_voice(argc, argv);
+    return true;
+}
+
 static int cmd_entry(int argc, char **argv)
 {
     grok_exec(argc, argv);
@@ -999,6 +1126,12 @@ static void register_commands(void)
         .hint = NULL,
         .func = &cmd_entry,
     };
+    const esp_console_cmd_t voice_cmd = {
+        .command = "voice",
+        .help = "Laptop voice: listening, thinking, next, prev, bot, close (also VOICE_BEGIN/END frames)",
+        .hint = NULL,
+        .func = &cmd_entry,
+    };
 
     if (esp_console_cmd_register(&wifi_cmd) != ESP_OK)
     {
@@ -1007,6 +1140,10 @@ static void register_commands(void)
     if (esp_console_cmd_register(&grok_cmd) != ESP_OK)
     {
         printf("grok: grok command was not registered\n");
+    }
+    if (esp_console_cmd_register(&voice_cmd) != ESP_OK)
+    {
+        printf("grok: voice command was not registered\n");
     }
 }
 

@@ -104,3 +104,11 @@ Write a command to RX, including the newline. Subscribe to TX for `GROK_BEGIN` /
 - The key is `XAI_API_KEY` in the proxy process only. It is never returned or logged; upstream error text is redacted.
 
 The proxy asks for a short plain-ASCII reply and caps it for the screen.
+
+
+## Laptop voice (USB serial)
+
+See `docs/laptop-voice.md`. Host sends `voice` / `voice listening` /
+`voice thinking` and framed `VOICE_BEGIN` … `VOICE_END` bodies. Device
+replies with `VOICE_BOT <name>` and `VOICE_READY`. **UNTESTED ON HARDWARE.**
+USB only for this path; no Wi-Fi claim.
