@@ -1,3 +1,21 @@
+## 0.17.1-voice.1 (draft, unreleased)
+
+### Added
+- Laptop voice → Chromatic display (USB serial): `voice` console verbs,
+  `VOICE_BEGIN`/`VOICE_END` framed replies, listening/thinking states using
+  the existing v2 Grok Bot ball loader, and phrase-at-a-time captions.
+- D-pad Left/Right on the voice screen cycles the bot-menu list and reports
+  `VOICE_BOT <name>` over serial.
+- `tools/voice_ptt.py` (Windows-first push-to-talk): local faster-whisper STT,
+  xAI via `XAI_API_KEY` env only, framed serial to the Chromatic.
+- `tools/requirements-voice.txt` (pinned), `docs/laptop-voice.md`,
+  `tests/test_grok_voice.c`.
+
+### Changed
+- App version `0.17.1-voice.1` (stacked on `0.17.1-grok` / bot-menu; avoids
+  colliding with `0.18.0-grok` and `0.19.0-grok` on other branches). Menu
+  string stays `4.6g`.
+
 ## 0.17.1-grok (draft, unreleased)
 
 ### Fixed

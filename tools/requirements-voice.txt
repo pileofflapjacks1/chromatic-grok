@@ -1,0 +1,7 @@
+# Laptop push-to-talk for Chromatic voice display (Windows-first).
+# Pin exact versions so Joe's PC installs are reproducible.
+pyserial==3.5
+sounddevice==0.5.1
+numpy==2.1.3
+faster-whisper==1.1.1
+pynput==1.7.7

@@ -6,6 +6,7 @@
 
 #include "grok_bots.h"
 #include "grok_loader.h"
+#include "grok_voice_util.h"
 
 #include "button.h"
 #include "color.h"
@@ -46,7 +47,19 @@ typedef enum {
     UI_BOTS,
     UI_NOTE,
     UI_LOADER,
+    UI_VOICE,
 } UiView_t;
+
+typedef enum {
+    VOICE_PHASE_LISTENING = 0,
+    VOICE_PHASE_THINKING,
+    VOICE_PHASE_CAPTION,
+} VoicePhase_t;
+
+enum {
+    kVoiceCaptionMax = 12,
+    kVoiceCaptionStride = 96,
+};
 
 typedef struct UiState {
     char body[GROK_REPLY_MAX + 1];
@@ -58,6 +71,10 @@ typedef struct UiState {
     bool dirty;
     uint32_t loader_start_ms;
     int loader_frame;
+    VoicePhase_t voice_phase;
+    char voice_caps[kVoiceCaptionMax][kVoiceCaptionStride];
+    size_t voice_cap_count;
+    size_t voice_cap_idx;
 } UiState_t;
 
 static SemaphoreHandle_t s_lock;
@@ -77,6 +94,7 @@ static const char kFooterReply[] = "A retry B back U/D";
 static const char kFooterPick[] = "A ask B back U/D";
 static const char kFooterBots[] = "A open B back U/D";
 static const char kFooterNote[] = "A ask B bots";
+static const char kFooterVoiceCap[] = "A next L/R bot";
 
 static OSD_Widget_t s_widget = {
     .Name = "GrokOverlay",
@@ -377,6 +395,37 @@ static void apply_body(const char *page_text)
     }
 }
 
+
+static void voice_report_bot_locked(void)
+{
+    char line[64];
+    const char *name = grok_bots_name(s_ui.bot);
+
+    grok_voice_format_bot_line(line, sizeof(line), name);
+    grok_say(line);
+}
+
+static void voice_show_caption_locked(void)
+{
+    char tmp[kVoiceCaptionStride];
+
+    if ((s_ui.voice_cap_count == 0) ||
+        (s_ui.voice_cap_idx >= s_ui.voice_cap_count))
+    {
+        snprintf(tmp, sizeof(tmp), "(no caption)");
+    }
+    else
+    {
+        memcpy(tmp, s_ui.voice_caps[s_ui.voice_cap_idx], sizeof(tmp));
+        tmp[sizeof(tmp) - 1] = '\0';
+    }
+    snprintf(s_ui.body, sizeof(s_ui.body), "%s", tmp);
+    s_ui.voice_phase = VOICE_PHASE_CAPTION;
+    s_ui.view = UI_VOICE;
+    s_ui.open = true;
+    s_ui.dirty = true;
+}
+
 static void open_bots_locked(void)
 {
     s_ui.view = UI_BOTS;
@@ -469,6 +518,75 @@ static void render(lv_obj_t *screen)
             lv_obj_move_foreground(s_panel);
             return;
         }
+    }
+
+
+    if (uiview == UI_VOICE)
+    {
+        VoicePhase_t phase;
+        size_t cap_idx;
+        size_t cap_count;
+
+        lock();
+        phase = s_ui.voice_phase;
+        cap_idx = s_ui.voice_cap_idx;
+        cap_count = s_ui.voice_cap_count;
+        if (phase != VOICE_PHASE_CAPTION)
+        {
+            uint32_t ms = now_ms();
+            int next = grok_loader_frame_at(ms, s_ui.loader_start_ms);
+            if (next != s_ui.loader_frame)
+            {
+                s_ui.loader_frame = next;
+                loader_frame = next;
+            }
+            else
+            {
+                loader_frame = s_ui.loader_frame;
+            }
+        }
+        else
+        {
+            snprintf(view, sizeof(view), "%s", s_ui.body);
+        }
+        unlock();
+
+        if (phase != VOICE_PHASE_CAPTION)
+        {
+            if (loader_frame != s_ui.loader_frame)
+            {
+                /* already updated under lock */
+            }
+            lv_obj_invalidate(s_loader);
+            set_text_visible(false);
+            /* Tiny status via header area is hidden with loader; footer not shown. */
+            (void)cap_idx;
+            (void)cap_count;
+            lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(s_panel);
+            return;
+        }
+
+        set_text_visible(true);
+        {
+            char hdr[24];
+            snprintf(hdr, sizeof(hdr), "V %u/%u",
+                     (unsigned)(cap_idx + 1),
+                     (unsigned)((cap_count > 0) ? cap_count : 1));
+            if (strcmp(hdr, s_header_shown) != 0)
+            {
+                lv_label_set_text(s_header, hdr);
+                snprintf(s_header_shown, sizeof(s_header_shown), "%s", hdr);
+            }
+        }
+        set_footer(kFooterVoiceCap);
+        if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))
+        {
+            apply_body(view);
+        }
+        lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(s_panel);
+        return;
     }
 
     set_text_visible(true);
@@ -696,6 +814,36 @@ static bool on_inputs(void)
 
         if (state != kButtonState_Pressed)
         {
+            continue;
+        }
+
+        if (uiview == UI_VOICE)
+        {
+            if ((button == kButton_Left) || (button == kButton_Right))
+            {
+                lock();
+                s_ui.bot = grok_bots_step(s_ui.bot,
+                                          (button == kButton_Right) ? 1 : -1);
+                s_ui.dirty = true;
+                unlock();
+                grok_ui_voice_report_bot();
+                return true;
+            }
+            if ((button == kButton_A) || (button == kButton_Down))
+            {
+                grok_ui_voice_caption_step(1);
+                return true;
+            }
+            if (button == kButton_Up)
+            {
+                grok_ui_voice_caption_step(-1);
+                return true;
+            }
+            if ((button == kButton_B) || (button == kButton_Start))
+            {
+                grok_ui_close();
+                return true;
+            }
             continue;
         }
         if (uiview == UI_LOADER)
@@ -929,4 +1077,113 @@ void grok_ui_set_page(int page)
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
+}
+
+void grok_ui_open_voice(void)
+{
+    lock();
+    s_ui.view = UI_VOICE;
+    s_ui.voice_phase = VOICE_PHASE_LISTENING;
+    s_ui.open = true;
+    s_ui.dirty = true;
+    s_ui.loader_start_ms = now_ms();
+    s_ui.loader_frame = 0;
+    s_ui.voice_cap_count = 0;
+    s_ui.voice_cap_idx = 0;
+    unlock();
+}
+
+void grok_ui_voice_listening(void)
+{
+    lock();
+    s_ui.view = UI_VOICE;
+    s_ui.voice_phase = VOICE_PHASE_LISTENING;
+    s_ui.open = true;
+    s_ui.dirty = true;
+    s_ui.loader_start_ms = now_ms();
+    s_ui.loader_frame = 0;
+    unlock();
+}
+
+void grok_ui_voice_thinking(void)
+{
+    lock();
+    s_ui.view = UI_VOICE;
+    s_ui.voice_phase = VOICE_PHASE_THINKING;
+    s_ui.open = true;
+    s_ui.dirty = true;
+    s_ui.loader_start_ms = now_ms();
+    s_ui.loader_frame = 0;
+    unlock();
+}
+
+void grok_ui_voice_set_reply(const char *text)
+{
+    size_t n;
+
+    lock();
+    n = grok_voice_chunk_captions(text, &s_ui.voice_caps[0][0],
+                                  kVoiceCaptionStride, kVoiceCaptionMax,
+                                  GROK_TEXT_COLS);
+    s_ui.voice_cap_count = n;
+    s_ui.voice_cap_idx = 0;
+    voice_show_caption_locked();
+    unlock();
+}
+
+void grok_ui_voice_caption_step(int delta)
+{
+    lock();
+    if (s_ui.view != UI_VOICE || s_ui.voice_phase != VOICE_PHASE_CAPTION)
+    {
+        unlock();
+        return;
+    }
+    if (s_ui.voice_cap_count == 0)
+    {
+        unlock();
+        return;
+    }
+    if (delta >= 0)
+    {
+        s_ui.voice_cap_idx = (s_ui.voice_cap_idx + 1) % s_ui.voice_cap_count;
+    }
+    else
+    {
+        if (s_ui.voice_cap_idx == 0)
+        {
+            s_ui.voice_cap_idx = s_ui.voice_cap_count - 1;
+        }
+        else
+        {
+            s_ui.voice_cap_idx--;
+        }
+    }
+    voice_show_caption_locked();
+    unlock();
+}
+
+void grok_ui_voice_report_bot(void)
+{
+    lock();
+    voice_report_bot_locked();
+    unlock();
+}
+
+int grok_ui_voice_bot_index(void)
+{
+    int bot;
+    lock();
+    bot = s_ui.bot;
+    unlock();
+    return bot;
+}
+
+bool grok_ui_voice_is_active(void)
+{
+    bool active;
+    lock();
+    active = s_ui.open && (s_ui.view == UI_VOICE);
+    unlock();
+    return active;
 }

@@ -6,6 +6,7 @@ idf_component_register(
         "grok_bots.c"
         "grok_loader.c"
         "grok_loader_frames.c"
+        "grok_voice_util.c"
         "grok_wifi.c"
         "grok_http.c"
         "grok_https.c"

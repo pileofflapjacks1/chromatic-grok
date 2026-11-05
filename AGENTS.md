@@ -12,3 +12,4 @@ Modified ModRetro Chromatic MCU firmware. Upstream is `upstream` (https://github
 - Light sleep is skipped while `Grok_WantsRadioAwake()` is true. Default is awake.
 - Host checks: `sh tests/run_host.sh`. That is not an IDF build and not a hardware test.
 - `web/` is the browser companion (TanStack Start). It is not part of the ESP-IDF build. `cd web && npm test && npm run build`.
+- Laptop voice (`docs/laptop-voice.md`, `tools/voice_ptt.py`): USB serial captions only; `XAI_API_KEY` on the PC; never log the key. UNTESTED ON HARDWARE.

@@ -6,6 +6,7 @@
 #include "grok_pick.h"
 #include "grok_bots.h"
 #include "grok_text.h"
+#include "grok_voice_util.h"
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -99,6 +100,18 @@ void grok_ui_open_picker(void);
 void grok_ui_open_bots(void);
 /* Show the connecting loader (Carty G frames); always at least one cycle. */
 void grok_ui_open_loader(void);
+/* Laptop-voice reply screen (ball loader + captions). */
+void grok_ui_open_voice(void);
+void grok_ui_voice_listening(void);
+void grok_ui_voice_thinking(void);
+void grok_ui_voice_set_reply(const char *text);
+void grok_ui_voice_caption_step(int delta);
+void grok_ui_voice_report_bot(void);
+int grok_ui_voice_bot_index(void);
+bool grok_ui_voice_is_active(void);
+
+/* Serial voice protocol: returns true if the line was consumed. */
+bool grok_voice_handle_line(const char *line);
 
 /* Phone typing page (grok_web.c), port 80, off by default. kick starts the
  * server when enabled, Wi-Fi has an IP and (direct mode) BLE is released;
