@@ -3,7 +3,7 @@
 **UNTESTED ON HARDWARE.**
 
 Stacked on the bot-menu branch (`0.17.1-grok`). App version for this add-on:
-`0.17.1-voice.3` (keeps the 0.17.1 bot-menu baseline; `0.18.0-grok` and
+`0.17.1-voice.4` (keeps the 0.17.1 bot-menu baseline; `0.18.0-grok` and
 `0.19.0-grok` already label other stacked branches, so this stays on the
 `0.17.1-voice` line instead of bumping into those numbers).
 
@@ -86,6 +86,19 @@ A line inside an open frame is never passed to `esp_console_run`. That
 includes `wifi clear` after a 241-character line, after more than 700 bad
 lines, and a payload whose text is `VOICE_END` or `wifi clear`.
 
+## Captions
+
+unscii_8 is an 8×8 font. The 160 px width is 20 columns. The body starts
+at y=11 and the footer is at y=135 on the 144 px screen, with a 9 px line
+pitch, so one caption page is 13 rows. A/Down moves to the next page of
+wrapped lines and stops on the last page. Up moves back and stops on the
+first. B and Start still close. Left and Right still change the bot.
+
+Spaces and tabs collapse to one space between words. A newline starts a
+new row, including a blank row. A word longer than 20 characters is split
+every 20 characters. The stored reply is still at most 640 characters.
+`V 1/N` is the page, not a single clipped line.
+
 ## Windows laptop install (Joe)
 
 A GitHub branch ZIP does not unpack into a folder named exactly
@@ -161,8 +174,17 @@ py -3 tools\voice_probe.py --port COM4
    Push-to-talk:
 
 ```bat
+py -3 tools\voice_ptt.py --list-mics
 py -3 tools\voice_ptt.py --port COM4 --hotkey space
+py -3 tools\voice_ptt.py --port COM4 --mic 1 --hotkey space
 ```
+
+`--list-mics` prints inputs only. With no `--mic`, the Windows default is
+used when its name does not contain `Chromatic`. Otherwise the first other
+input is used. If every input is a Chromatic device, the tool stops and
+lists them instead of recording silence. `--mic 1` or `--mic Realtek` may
+select a Chromatic device on purpose. The chosen `mic: [index] name` line
+is printed before recording.
 
 Hold **space** (or `--hotkey f9`) to talk; release to transcribe and send.
 Ctrl+C stops the loop. Use `--once` for a single cycle.
@@ -171,8 +193,9 @@ Optional: `--whisper-model tiny.en` for a smaller/faster local model.
 
 ## Flash this firmware (USB)
 
-**UNTESTED ON HARDWARE.** The DTR/RTS host change does not replace the
-`0.17.1-voice.3` image. Keep the files already on the draft release. From an ESP-IDF 5.3 command prompt, with the
+**UNTESTED ON HARDWARE.** Caption wrapping needs `0.17.1-voice.4`.
+Leave the existing `0.17.1-voice.3` draft release assets in place and
+upload this image as a new draft. From an ESP-IDF 5.3 command prompt, with the
 release files in the current folder, Chromatic on **COM4** at **115200**.
 Close any serial monitor first. Do **not** erase flash; do **not** rewrite
 the bootloader at `0x1000` unless you intend a full recovery.

@@ -214,7 +214,8 @@ class ChromaticSerial:
                         sys.stderr.write("%s\n" % text)
 
 
-def record_until(stop_event: threading.Event, sample_rate: int = 16000):
+def record_until(stop_event: threading.Event, sample_rate: int = 16000,
+                  device_index=None, device_name=""):
     import numpy as np
     import sounddevice as sd
 
@@ -225,9 +226,11 @@ def record_until(stop_event: threading.Event, sample_rate: int = 16000):
             sys.stderr.write("mic status: %s\n" % status)
         chunks.append(indata.copy())
 
-    with sd.InputStream(
-        samplerate=sample_rate, channels=1, dtype="float32", callback=callback
-    ):
+    sys.stderr.write("mic: [%s] %s\n" % (device_index, device_name))
+    stream = {"samplerate": sample_rate, "channels": 1, "dtype": "float32", "callback": callback}
+    if device_index is not None:
+        stream["device"] = device_index
+    with sd.InputStream(**stream):
         while not stop_event.is_set():
             time.sleep(0.05)
     if not chunks:
@@ -249,7 +252,7 @@ def transcribe(audio, sample_rate: int, model_size: str) -> str:
     return fold_ascii(" ".join(parts), 2000)
 
 
-def wait_ptt(hotkey: str, on_start=None):
+def wait_ptt(hotkey: str, on_start=None, device_index=None, device_name=""):
     from pynput import keyboard
 
     pressed = threading.Event()
@@ -291,7 +294,9 @@ def wait_ptt(hotkey: str, on_start=None):
     rec_thread_result = {}
 
     def _rec():
-        audio, sr = record_until(stop)
+        audio, sr = record_until(
+            stop, device_index=device_index, device_name=device_name
+        )
         rec_thread_result["audio"] = audio
         rec_thread_result["sr"] = sr
 
@@ -304,12 +309,17 @@ def wait_ptt(hotkey: str, on_start=None):
     return rec_thread_result.get("audio"), rec_thread_result.get("sr", 16000)
 
 
-def one_shot(port: str, hotkey: str, model_size: str, baud: int):
+def one_shot(port: str, hotkey: str, model_size: str, baud: int, mic):
     link = ChromaticSerial(port, baud=baud)
     try:
         link.write_line("voice")
         time.sleep(0.3)
-        audio, sr = wait_ptt(hotkey, on_start=lambda: link.write_line("voice listening"))
+        audio, sr = wait_ptt(
+            hotkey,
+            on_start=lambda: link.write_line("voice listening"),
+            device_index=mic[0],
+            device_name=mic[1],
+        )
         sys.stderr.write("transcribing locally (faster-whisper %s)...\n" % model_size)
         link.write_line("voice thinking")
         text = transcribe(audio, sr, model_size)
@@ -322,9 +332,7 @@ def one_shot(port: str, hotkey: str, model_size: str, baud: int):
         reply, err = ask_xai(prompt)
         if err:
             sys.stderr.write("grok error: %s\n" % err)
-            link.write_line("VOICE_BEGIN")
-            link.write_line(fold_ascii(err))
-            link.write_line("VOICE_END")
+            link.send_framed_reply(fold_ascii(err))
             return 2
         sys.stderr.write("reply: %s\n" % reply)
         link.send_framed_reply(reply)
@@ -333,13 +341,18 @@ def one_shot(port: str, hotkey: str, model_size: str, baud: int):
         link.close()
 
 
-def loop_mode(port: str, hotkey: str, model_size: str, baud: int):
+def loop_mode(port: str, hotkey: str, model_size: str, baud: int, mic):
     link = ChromaticSerial(port, baud=baud)
     try:
         link.write_line("voice")
         time.sleep(0.3)
         while True:
-            audio, sr = wait_ptt(hotkey, on_start=lambda: link.write_line("voice listening"))
+            audio, sr = wait_ptt(
+                hotkey,
+                on_start=lambda: link.write_line("voice listening"),
+                device_index=mic[0],
+                device_name=mic[1],
+            )
             sys.stderr.write("transcribing locally (faster-whisper %s)...\n" % model_size)
             link.write_line("voice thinking")
             text = transcribe(audio, sr, model_size)
@@ -369,7 +382,7 @@ def main(argv):
     )
     parser.add_argument(
         "--port",
-        required=True,
+        default=None,
         help="Chromatic COM port, e.g. COM4 (device must be plugged in)",
     )
     parser.add_argument("--baud", type=int, default=115200)
@@ -388,7 +401,22 @@ def main(argv):
         action="store_true",
         help="One PTT cycle then exit (default: loop until Ctrl+C)",
     )
+    parser.add_argument(
+        "--list-mics",
+        action="store_true",
+        help="Print input devices and exit. Output devices are omitted.",
+    )
+    parser.add_argument(
+        "--mic",
+        default=None,
+        help="Input index or name substring. Default skips names containing Chromatic.",
+    )
     args = parser.parse_args(argv)
+
+    if args.list_mics:
+        return list_mics()
+    if not args.port:
+        parser.error("--port is required unless --list-mics is set")
 
     if not os.environ.get("XAI_API_KEY", "").strip():
         sys.stderr.write(
@@ -411,9 +439,57 @@ def main(argv):
         )
         return 2
 
+    mic = choose_mic(args.mic)
+    if mic is None:
+        return 2
     if args.once:
-        return one_shot(args.port, args.hotkey, args.whisper_model, args.baud)
-    return loop_mode(args.port, args.hotkey, args.whisper_model, args.baud)
+        return one_shot(args.port, args.hotkey, args.whisper_model, args.baud, mic)
+    return loop_mode(args.port, args.hotkey, args.whisper_model, args.baud, mic)
+
+
+def _query_inputs():
+    import sounddevice as sd
+
+    devices = []
+    for dev in sd.query_devices():
+        devices.append(
+            {
+                "name": dev["name"],
+                "max_input_channels": dev["max_input_channels"],
+            }
+        )
+    default = sd.default.device
+    if isinstance(default, (list, tuple)):
+        default_index = default[0]
+    else:
+        default_index = default
+    return devices, default_index
+
+
+def list_mics():
+    from mic_select import format_inputs
+
+    try:
+        devices, _default = _query_inputs()
+    except ImportError as exc:
+        sys.stderr.write(
+            "Missing dependency: %s\nInstall with:\n  pip install -r tools/requirements-voice.txt\n"
+            % exc
+        )
+        return 2
+    sys.stdout.write(format_inputs(devices) + "\n")
+    return 0
+
+
+def choose_mic(spec):
+    from mic_select import select_input
+
+    devices, default_index = _query_inputs()
+    try:
+        return select_input(devices, default_index, spec)
+    except ValueError as exc:
+        sys.stderr.write("%s\n" % exc)
+        return None
 
 
 if __name__ == "__main__":

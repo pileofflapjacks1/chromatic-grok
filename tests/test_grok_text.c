@@ -214,9 +214,136 @@ static void test_pick(void)
     expect_true("row small cap", strcmp(row, " 3 ab") == 0);
 }
 
+static void expect_str(const char *name, const char *got, const char *want)
+{
+    if (strcmp(got, want) != 0)
+    {
+        fprintf(stderr, "FAIL %s got \"%s\" want \"%s\"\n", name, got, want);
+        g_failed++;
+    }
+}
+
+static void append_words(char *dst, const char *src)
+{
+    size_t n = strlen(dst);
+
+    while (*src != '\0')
+    {
+        if (*src == '\n')
+        {
+            src++;
+            continue;
+        }
+        dst[n++] = *src++;
+    }
+    dst[n] = '\0';
+}
+
+static void append_lines_as_spaces(char *dst, const char *src)
+{
+    size_t n = strlen(dst);
+
+    while (*src != '\0')
+    {
+        char ch = *src++;
+
+        if (ch == '\n')
+        {
+            if ((n > 0) && (dst[n - 1] != ' '))
+            {
+                dst[n++] = ' ';
+            }
+            continue;
+        }
+        dst[n++] = ch;
+    }
+    dst[n] = '\0';
+}
+
+static void test_caption_pages(void)
+{
+    char page[400];
+    char all[GROK_REPLY_MAX + 8];
+    const char *sentence = "What about what? I don't know";
+    char long_word[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+    char maxed[GROK_REPLY_MAX + 1];
+    size_t lines;
+    size_t page_i;
+
+    lines = grok_text_caption_page(long_word, 5, 0, 2, page, sizeof(page));
+    expect_true("long word lines", lines == 8);
+    expect_str("long word page0", page, "abcde\nfghij");
+    grok_text_caption_page(long_word, 5, 3, 2, page, sizeof(page));
+    expect_str("long word last", page, "45678\n9");
+    expect_true("step stays on last", grok_text_caption_step(3, lines, 2, 1) == 3);
+    expect_true("step stays on first", grok_text_caption_step(0, lines, 2, -1) == 0);
+
+    lines = grok_text_caption_page("a\n\nb", 20, 0, 13, page, sizeof(page));
+    expect_true("blank line count", lines == 3);
+    expect_str("blank lines", page, "a\n\nb");
+
+    lines = grok_text_caption_page("a  \tb", 20, 0, 13, page, sizeof(page));
+    expect_str("space collapse", page, "a b");
+
+    lines = grok_text_caption_page("   ", 20, 0, 13, page, sizeof(page));
+    expect_true("spaces empty", lines == 0);
+    expect_str("spaces page", page, "");
+    lines = grok_text_caption_page("", 20, 0, 13, page, sizeof(page));
+    expect_true("empty", lines == 0);
+
+    memset(maxed, 'A', GROK_REPLY_MAX);
+    maxed[GROK_REPLY_MAX] = '\0';
+    lines = grok_text_caption_page(maxed, GROK_TEXT_COLS, 0, GROK_TEXT_PAGE_LINES, page, sizeof(page));
+    expect_true("640 lines", lines == (GROK_REPLY_MAX / GROK_TEXT_COLS));
+    all[0] = '\0';
+    for (page_i = 0; ; page_i++)
+    {
+        size_t next;
+        grok_text_caption_page(maxed, GROK_TEXT_COLS, page_i, GROK_TEXT_PAGE_LINES, page, sizeof(page));
+        append_words(all, page);
+        next = grok_text_caption_step(page_i, lines, GROK_TEXT_PAGE_LINES, 1);
+        if (next == page_i)
+        {
+            break;
+        }
+    }
+    expect_true("640 reachable", strlen(all) == GROK_REPLY_MAX);
+    expect_true("640 same", strcmp(all, maxed) == 0);
+
+    lines = grok_text_caption_page(sentence, GROK_TEXT_COLS, 0, GROK_TEXT_PAGE_LINES, page, sizeof(page));
+    expect_true("sentence lines", lines >= 2);
+    expect_true("first row fits", strchr(page, '\n') != NULL);
+    expect_true("first row width", (size_t)(strchr(page, '\n') - page) <= GROK_TEXT_COLS);
+    all[0] = '\0';
+    {
+        size_t pages = (lines + GROK_TEXT_PAGE_LINES - 1u) / GROK_TEXT_PAGE_LINES;
+        size_t pno;
+
+        for (pno = 0; pno < pages; pno++)
+        {
+            grok_text_caption_page(sentence, GROK_TEXT_COLS, pno, GROK_TEXT_PAGE_LINES, page, sizeof(page));
+            append_lines_as_spaces(all, page);
+            expect_true("step reaches next",
+                        (pno + 1u == pages) ||
+                        (grok_text_caption_step(pno, lines, GROK_TEXT_PAGE_LINES, 1) == pno + 1u));
+        }
+        expect_true("A stops on last page",
+                    grok_text_caption_step(pages - 1u, lines, GROK_TEXT_PAGE_LINES, 1) == pages - 1u);
+    }
+    expect_str("sentence reachable", all, sentence);
+
+    /* A 20-column boundary must not drop the next word. */
+    lines = grok_text_caption_page("12345678901234567890 NEXT", GROK_TEXT_COLS, 0, 1, page, sizeof(page));
+    expect_true("boundary lines", lines == 2);
+    expect_str("boundary first", page, "12345678901234567890");
+    grok_text_caption_page("12345678901234567890 NEXT", GROK_TEXT_COLS, 1, 1, page, sizeof(page));
+    expect_str("boundary second", page, "NEXT");
+}
+
 int main(void)
 {
     test_wrap();
+    test_caption_pages();
     test_json();
     test_fold();
     test_responses();

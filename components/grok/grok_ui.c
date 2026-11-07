@@ -30,7 +30,7 @@
  * characters fill the 160 px width exactly and the column-based wrap never clips.
  * The OSD font (fingfai) draws lowercase in 3x3 px, where a, e and o look the same. */
 enum {
-    kPageLines = 13,
+    kPageLines = GROK_TEXT_PAGE_LINES,
     kLinePitch = 9,     // 8 px glyph cell + 1 px line space
     kHeaderY = 1,
     kBodyY = 11,
@@ -56,11 +56,6 @@ typedef enum {
     VOICE_PHASE_CAPTION,
 } VoicePhase_t;
 
-enum {
-    kVoiceCaptionMax = 12,
-    kVoiceCaptionStride = 96,
-};
-
 typedef struct UiState {
     char body[GROK_REPLY_MAX + 1];
     int page;
@@ -72,9 +67,8 @@ typedef struct UiState {
     uint32_t loader_start_ms;
     int loader_frame;
     VoicePhase_t voice_phase;
-    char voice_caps[kVoiceCaptionMax][kVoiceCaptionStride];
-    size_t voice_cap_count;
-    size_t voice_cap_idx;
+    char voice_text[GROK_REPLY_MAX + 1];
+    size_t voice_page;
 } UiState_t;
 
 static SemaphoreHandle_t s_lock;
@@ -407,19 +401,6 @@ static void voice_report_bot_locked(void)
 
 static void voice_show_caption_locked(void)
 {
-    char tmp[kVoiceCaptionStride];
-
-    if ((s_ui.voice_cap_count == 0) ||
-        (s_ui.voice_cap_idx >= s_ui.voice_cap_count))
-    {
-        snprintf(tmp, sizeof(tmp), "(no caption)");
-    }
-    else
-    {
-        memcpy(tmp, s_ui.voice_caps[s_ui.voice_cap_idx], sizeof(tmp));
-        tmp[sizeof(tmp) - 1] = '\0';
-    }
-    snprintf(s_ui.body, sizeof(s_ui.body), "%s", tmp);
     s_ui.voice_phase = VOICE_PHASE_CAPTION;
     s_ui.view = UI_VOICE;
     s_ui.open = true;
@@ -529,8 +510,7 @@ static void render(lv_obj_t *screen)
 
         lock();
         phase = s_ui.voice_phase;
-        cap_idx = s_ui.voice_cap_idx;
-        cap_count = s_ui.voice_cap_count;
+        cap_idx = s_ui.voice_page;
         if (phase != VOICE_PHASE_CAPTION)
         {
             uint32_t ms = now_ms();
@@ -544,10 +524,22 @@ static void render(lv_obj_t *screen)
             {
                 loader_frame = s_ui.loader_frame;
             }
+            cap_count = 0;
         }
         else
         {
-            snprintf(view, sizeof(view), "%s", s_ui.body);
+            cap_count = grok_text_caption_page(s_ui.voice_text, GROK_TEXT_COLS,
+                                               s_ui.voice_page, (size_t)kPageLines,
+                                               view, sizeof(view));
+            if ((cap_count > 0) &&
+                (s_ui.voice_page >= ((cap_count + (size_t)kPageLines - 1u) / (size_t)kPageLines)))
+            {
+                s_ui.voice_page = 0;
+                cap_idx = 0;
+                cap_count = grok_text_caption_page(s_ui.voice_text, GROK_TEXT_COLS,
+                                                   0, (size_t)kPageLines,
+                                                   view, sizeof(view));
+            }
         }
         unlock();
 
@@ -570,13 +562,23 @@ static void render(lv_obj_t *screen)
         set_text_visible(true);
         {
             char hdr[24];
+            size_t pages = (cap_count == 0) ? 1u
+                           : ((cap_count + (size_t)kPageLines - 1u) / (size_t)kPageLines);
+
+            if (cap_idx >= pages)
+            {
+                cap_idx = pages - 1u;
+            }
             snprintf(hdr, sizeof(hdr), "V %u/%u",
-                     (unsigned)(cap_idx + 1),
-                     (unsigned)((cap_count > 0) ? cap_count : 1));
+                     (unsigned)(cap_idx + 1u), (unsigned)pages);
             if (strcmp(hdr, s_header_shown) != 0)
             {
                 lv_label_set_text(s_header, hdr);
                 snprintf(s_header_shown, sizeof(s_header_shown), "%s", hdr);
+            }
+            if (cap_count == 0)
+            {
+                snprintf(view, sizeof(view), "(no caption)");
             }
         }
         set_footer(kFooterVoiceCap);
@@ -1088,8 +1090,8 @@ void grok_ui_open_voice(void)
     s_ui.dirty = true;
     s_ui.loader_start_ms = now_ms();
     s_ui.loader_frame = 0;
-    s_ui.voice_cap_count = 0;
-    s_ui.voice_cap_idx = 0;
+    s_ui.voice_text[0] = '\0';
+    s_ui.voice_page = 0;
     unlock();
 }
 
@@ -1119,47 +1121,29 @@ void grok_ui_voice_thinking(void)
 
 void grok_ui_voice_set_reply(const char *text)
 {
-    size_t n;
-
     lock();
-    n = grok_voice_chunk_captions(text, &s_ui.voice_caps[0][0],
-                                  kVoiceCaptionStride, kVoiceCaptionMax,
-                                  GROK_TEXT_COLS);
-    s_ui.voice_cap_count = n;
-    s_ui.voice_cap_idx = 0;
+    snprintf(s_ui.voice_text, sizeof(s_ui.voice_text), "%s", (text != NULL) ? text : "");
+    grok_text_fold_ascii(s_ui.voice_text);
+    s_ui.voice_page = 0;
     voice_show_caption_locked();
     unlock();
 }
 
 void grok_ui_voice_caption_step(int delta)
 {
+    size_t lines;
+
     lock();
     if (s_ui.view != UI_VOICE || s_ui.voice_phase != VOICE_PHASE_CAPTION)
     {
         unlock();
         return;
     }
-    if (s_ui.voice_cap_count == 0)
-    {
-        unlock();
-        return;
-    }
-    if (delta >= 0)
-    {
-        s_ui.voice_cap_idx = (s_ui.voice_cap_idx + 1) % s_ui.voice_cap_count;
-    }
-    else
-    {
-        if (s_ui.voice_cap_idx == 0)
-        {
-            s_ui.voice_cap_idx = s_ui.voice_cap_count - 1;
-        }
-        else
-        {
-            s_ui.voice_cap_idx--;
-        }
-    }
-    voice_show_caption_locked();
+    lines = grok_text_caption_page(s_ui.voice_text, GROK_TEXT_COLS, 0,
+                                   (size_t)kPageLines, NULL, 0);
+    s_ui.voice_page = grok_text_caption_step(s_ui.voice_page, lines,
+                                             (size_t)kPageLines, delta);
+    s_ui.dirty = true;
     unlock();
 }
 

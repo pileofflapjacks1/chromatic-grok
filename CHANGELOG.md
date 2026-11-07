@@ -1,3 +1,14 @@
+## 0.17.1-voice.4 (draft, unreleased)
+
+### Fixed
+- Voice captions wrap on the 20-column unscii_8 body (13 rows) and A/Up
+  move by those wrapped lines. The 640-character cap stays. **UNTESTED ON
+  HARDWARE.**
+
+### Host
+- `--list-mics` and `--mic`. The default input skips a device whose name
+  contains Chromatic. **UNTESTED ON HARDWARE.**
+
 ## 0.17.1-voice.3 (draft, unreleased)
 
 ### Host
