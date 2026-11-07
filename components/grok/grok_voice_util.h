@@ -7,7 +7,6 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 
 /* Framed markers (whole line, case-sensitive). */
 #define GROK_VOICE_BEGIN "VOICE_BEGIN"
@@ -23,10 +22,6 @@
 #define GROK_VOICE_LINE_MAX 240
 #define GROK_VOICE_CHUNK_MAX 225
 #define GROK_VOICE_BODY_MAX GROK_REPLY_MAX
-/* Worst folded reply is 640 newlines, which is 640 VOICE_NL lines.
- * The next non-terminator after this many in-frame lines closes the frame
- * without running that line. There is no millisecond timer. */
-#define GROK_VOICE_FRAME_MAX_LINES 700
 
 typedef enum {
     GROK_VOICE_EVT_NONE = 0,
@@ -45,10 +40,17 @@ typedef struct GrokVoiceParser {
     char body[GROK_VOICE_BODY_MAX + 1];
     size_t body_len;
     bool in_frame;
-    bool fail;       /* discard payload until END/ABORT/budget */
+    bool fail;       /* discard payload until VOICE_END or VOICE_ABORT */
     bool skip_rest;  /* byte feeder: ignore this line after an overlong chunk */
-    uint16_t frame_lines;
 } GrokVoiceParser_t;
+
+/* True when grok_voice_handle_line will return false for a non-verb line,
+ * which is when grok_console.c calls esp_console_run. A voice verb on this
+ * event is still command dispatch. In-frame lines are never true. */
+static inline bool grok_voice_reaches_command(GrokVoiceEvt_t ev)
+{
+    return ev == GROK_VOICE_EVT_LINE;
+}
 
 void grok_voice_parser_init(GrokVoiceParser_t *p);
 

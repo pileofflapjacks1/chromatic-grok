@@ -3,7 +3,7 @@
 **UNTESTED ON HARDWARE.**
 
 Stacked on the bot-menu branch (`0.17.1-grok`). App version for this add-on:
-`0.17.1-voice.2` (keeps the 0.17.1 bot-menu baseline; `0.18.0-grok` and
+`0.17.1-voice.3` (keeps the 0.17.1 bot-menu baseline; `0.18.0-grok` and
 `0.19.0-grok` already label other stacked branches, so this stays on the
 `0.17.1-voice` line instead of bumping into those numbers).
 
@@ -57,23 +57,34 @@ discarded` instead of a caption, and those raw lines are not executed. No
 field device is known to be running `0.17.1-voice.1` (that build was
 untested on hardware).
 
-Recovery, in order:
+Recovery:
 
+- The frame stays open until a line that is exactly `VOICE_END` or exactly
+  `VOICE_ABORT`. There is no line cap and no timer that returns to the
+  console in the middle of a frame. Memory stays bounded: the body buffer is
+  cleared when a chunk is bad, and it is not grown past 640 bytes.
 - `VOICE_END` shows the body when every chunk was well formed. If any chunk
   was overlong, the wrong length, or not a `VOICE_DATA` / `VOICE_NL` line,
   the body is cleared and the device prints `voice: discarded`.
-- `VOICE_ABORT` does the same clear without showing a reply.
-- There is no millisecond timeout. After 700 non-terminator lines inside one
-  frame the device closes the frame, drops the body, and the next line is a
-  normal console command again. A max-length reply of 640 newlines fits
-  (640 `VOICE_NL` lines). The line that crosses the budget is consumed and
-  is not executed.
+- `VOICE_ABORT` clears the body without showing a reply.
+- `wifi clear`, `voice close`, and further reply lines after hundreds of bad
+  lines are still inside the frame. They do not reach `esp_console_run`.
+- A length field is a 1 to 3 digit count followed by one space. The payload
+  must be exactly that many bytes. `VOICE_DATA 3 wifi clear`, `VOICE_DATA
+  9999 ...`, a leading `+`, or a missing space fails the frame and stays
+  inside it.
+- Marker collision: `VOICE_DATA 9 VOICE_END` is caption text. A raw line that
+  is exactly `VOICE_END` is the terminator (legacy raw framing uses that).
+  `VOICE_END ` with a trailing space is not the terminator. Raw legacy body
+  lines before that exact marker are not executed. The new host never emits
+  a raw `VOICE_END` inside the body.
 - `voice close` typed during an open frame is frame junk, not the close
-  verb. Send `VOICE_ABORT` to unlock the console.
+  verb. Send `VOICE_ABORT` or `VOICE_END` to unlock the console. A truncated
+  frame with no end marker keeps swallowing lines on purpose.
 
-A line the parser accepts is never passed to `esp_console_run`. That includes
-`wifi clear` after a 241-character line and a payload whose text is
-`VOICE_END` or `wifi clear`.
+A line inside an open frame is never passed to `esp_console_run`. That
+includes `wifi clear` after a 241-character line, after more than 700 bad
+lines, and a payload whose text is `VOICE_END` or `wifi clear`.
 
 ## Windows laptop install (Joe)
 

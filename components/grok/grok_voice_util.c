@@ -31,24 +31,6 @@ static void close_frame(GrokVoiceParser_t *p)
 {
     p->in_frame = false;
     p->fail = false;
-    p->frame_lines = 0;
-}
-
-/* Count one in-frame line. Past the budget the line is still consumed and
- * the frame closes so a later console command can run. */
-static GrokVoiceEvt_t count_frame_line(GrokVoiceParser_t *p)
-{
-    if (p->frame_lines < 0xffffu)
-    {
-        p->frame_lines++;
-    }
-    if (p->frame_lines > GROK_VOICE_FRAME_MAX_LINES)
-    {
-        clear_body(p);
-        close_frame(p);
-        return GROK_VOICE_EVT_DROPPED;
-    }
-    return GROK_VOICE_EVT_HOLD;
 }
 
 static bool append_bytes(GrokVoiceParser_t *p, const char *src, size_t n)
@@ -152,14 +134,7 @@ static GrokVoiceEvt_t accept_line(GrokVoiceParser_t *p, const char *line)
         return GROK_VOICE_EVT_DROPPED;
     }
 
-    {
-        GrokVoiceEvt_t budget = count_frame_line(p);
-
-        if (budget == GROK_VOICE_EVT_DROPPED)
-        {
-            return budget;
-        }
-    }
+    /* Stay in the frame. A line cap must not fall through to esp_console. */
     if (p->fail)
     {
         return GROK_VOICE_EVT_HOLD;
@@ -240,13 +215,9 @@ GrokVoiceEvt_t grok_voice_parser_feed(GrokVoiceParser_t *p, char ch,
         p->line[0] = '\0';
         if (p->in_frame)
         {
-            GrokVoiceEvt_t ev;
-
             mark_fail(p);
-            ev = count_frame_line(p);
-            /* Keep discarding this physical line even if the budget closed the frame. */
             p->skip_rest = true;
-            return ev;
+            return GROK_VOICE_EVT_HOLD;
         }
         return GROK_VOICE_EVT_OVERFLOW;
     }
@@ -271,7 +242,7 @@ GrokVoiceEvt_t grok_voice_parser_feed_line(GrokVoiceParser_t *p, const char *lin
             if (p->in_frame)
             {
                 mark_fail(p);
-                return count_frame_line(p);
+                return GROK_VOICE_EVT_HOLD;
             }
             return GROK_VOICE_EVT_LINE;
         }

@@ -139,6 +139,43 @@ def test_literals_and_lengths():
     assert len(folded) == 640
 
 
+def test_past_cap_stays_closed_until_end():
+    lines = ["VOICE_BEGIN"]
+    lines.extend(["malformed"] * 700)
+    lines.append("wifi clear")
+    lines.extend(["wifi clear"] * 400)
+    lines.append("voice close")
+    lines.append("VOICE_END")
+    events = feed(lines)
+    assert_no_dispatch(events, "past cap")
+    assert events[0][0] == "BEGIN"
+    assert events[700][0] == "HOLD"  # 700th malformed line
+    assert events[701] == ("HOLD", True, "")  # wifi clear after that cap
+    assert events[-2][0] == "HOLD"  # voice close
+    assert events[-1][0] == "DROPPED"
+    assert events[-1][1] is False
+
+
+def test_length_and_legacy():
+    events = feed(
+        [
+            "VOICE_BEGIN",
+            "VOICE_DATA 3 wifi clear",
+            "VOICE_DATA 9999 wifi clear",
+            "VOICE_DATA +10 wifi clear",
+            "VOICE_DATA",
+            "VOICE_DATA 0 wifi clear",
+            "hello VOICE_END",
+            "VOICE_END ",
+            "wifi clear",
+            "VOICE_END",
+        ]
+    )
+    assert_no_dispatch(events, "length")
+    assert events[-1][0] == "DROPPED"
+    assert events[-1][2] == ""
+
+
 def test_overflow_and_marker_do_not_dispatch_wifi_clear():
     events = feed(
         [
@@ -178,5 +215,7 @@ def test_overflow_and_marker_do_not_dispatch_wifi_clear():
 if __name__ == "__main__":
     test_constants_match()
     test_literals_and_lengths()
+    test_past_cap_stays_closed_until_end()
+    test_length_and_legacy()
     test_overflow_and_marker_do_not_dispatch_wifi_clear()
     print("test_voice_frame: ok")

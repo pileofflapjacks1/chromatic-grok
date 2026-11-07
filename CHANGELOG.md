@@ -1,3 +1,12 @@
+## 0.17.1-voice.3 (draft, unreleased)
+
+### Fixed
+- An open voice frame no longer returns to the console after 700 lines.
+  Overlong, malformed, and truncated frames discard reply bytes until a line
+  that is exactly `VOICE_END` or `VOICE_ABORT`. `wifi clear` past that old
+  cap is not executed. Length fields that do not match the payload fail
+  closed the same way. **UNTESTED ON HARDWARE.**
+
 ## 0.17.1-voice.2 (draft, unreleased)
 
 ### Fixed
@@ -9,7 +18,8 @@
   the body buffer. Quotes and backslashes are not rewritten.
 
 ### Changed
-- App version `0.17.1-voice.2`. The `0.17.1-voice.1` raw body lines are not
+- App version `0.17.1-voice.2` (superseded by `0.17.1-voice.3`; that image
+  closed the frame after 700 lines). The `0.17.1-voice.1` raw body lines are not
   compatible with this parser. **UNTESTED ON HARDWARE.**
 
 ## 0.17.1-voice.1 (draft, unreleased)

@@ -1086,7 +1086,7 @@ bool grok_voice_handle_line(const char *line)
         grok_say("voice: discarded\n");
         return true;
     }
-    if (ev != GROK_VOICE_EVT_LINE)
+    if (!grok_voice_reaches_command(ev))
     {
         return true;
     }

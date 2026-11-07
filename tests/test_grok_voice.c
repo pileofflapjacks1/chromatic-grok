@@ -17,9 +17,10 @@ static void expect_true(const char *name, int cond)
     }
 }
 
+/* Same predicate grok_voice_handle_line uses before esp_console_run. */
 static int may_dispatch(GrokVoiceEvt_t ev)
 {
-    return ev == GROK_VOICE_EVT_LINE;
+    return grok_voice_reaches_command(ev);
 }
 
 static void format_data(char *dst, size_t cap, const char *payload)
@@ -155,19 +156,89 @@ static void test_wifi_clear_never_dispatched(void)
                 strcmp(p.body, "He said \"it's 'fine'\" \\") == 0);
     grok_voice_parser_feed_line(&p, GROK_VOICE_END);
 
-    /* Line budget: every wifi clear inside the open frame is consumed. */
+    /* Past any old 700-line cap the frame stays open. Line 701 and later
+     * reply lines must not reach esp_console. Only VOICE_END closes it. */
     grok_voice_parser_init(&p);
     grok_voice_parser_feed_line(&p, GROK_VOICE_BEGIN);
-    for (i = 0; i < GROK_VOICE_FRAME_MAX_LINES; i++)
+    for (i = 1; i <= 700; i++)
     {
-        ev = grok_voice_parser_feed_line(&p, "wifi clear");
-        expect_true("budget line consumed", !may_dispatch(ev));
+        ev = grok_voice_parser_feed_line(&p, "nope");
+        expect_true("700 consumed", !may_dispatch(ev));
+        expect_true("700 still framed", p.in_frame);
     }
     ev = grok_voice_parser_feed_line(&p, "wifi clear");
-    expect_true("budget close consumed", ev == GROK_VOICE_EVT_DROPPED);
-    expect_true("budget not dispatched", !may_dispatch(ev));
-    expect_true("after budget dispatch",
+    expect_true("line 701 not command", ev == GROK_VOICE_EVT_HOLD);
+    expect_true("line 701 not dispatch", !may_dispatch(ev));
+    expect_true("line 701 still framed", p.in_frame);
+    for (i = 0; i < 400; i++)
+    {
+        ev = grok_voice_parser_feed_line(&p, "wifi clear");
+        expect_true("beyond cap consumed", !may_dispatch(ev));
+    }
+    expect_true("beyond cap still framed", p.in_frame);
+    expect_true("beyond cap body bounded", p.body_len == 0);
+    ev = grok_voice_parser_feed_line(&p, "voice close");
+    expect_true("verb inside frame not dispatch", !may_dispatch(ev));
+    ev = grok_voice_parser_feed_line(&p, GROK_VOICE_END);
+    expect_true("end after cap drops", ev == GROK_VOICE_EVT_DROPPED);
+    expect_true("end after cap not dispatch", !may_dispatch(ev));
+    expect_true("frame closed only at end", !p.in_frame);
+    expect_true("command after real end",
                 may_dispatch(grok_voice_parser_feed_line(&p, "help")));
+}
+
+static void test_length_and_legacy_markers(void)
+{
+    GrokVoiceParser_t p;
+    GrokVoiceEvt_t ev;
+    char huge[1000];
+
+    grok_voice_parser_init(&p);
+    grok_voice_parser_feed_line(&p, GROK_VOICE_BEGIN);
+    ev = grok_voice_parser_feed_line(&p, "VOICE_DATA 3 wifi clear");
+    expect_true("short length held", ev == GROK_VOICE_EVT_HOLD);
+    expect_true("short length not dispatch", !may_dispatch(ev));
+    ev = grok_voice_parser_feed_line(&p, "VOICE_DATA 9999 wifi clear");
+    expect_true("wide length held", !may_dispatch(ev));
+    ev = grok_voice_parser_feed_line(&p, "VOICE_DATA +10 wifi clear");
+    expect_true("plus length held", !may_dispatch(ev));
+    ev = grok_voice_parser_feed_line(&p, "VOICE_DATA");
+    expect_true("bare data word held", !may_dispatch(ev));
+    ev = grok_voice_parser_feed_line(&p, "VOICE_DATA 0 wifi clear");
+    expect_true("zero length extra held", !may_dispatch(ev));
+    ev = grok_voice_parser_feed_line(&p, "wifi clear");
+    expect_true("after bad lengths not dispatch", !may_dispatch(ev));
+    expect_true("bad lengths still framed", p.in_frame);
+    expect_true("bad lengths body empty", p.body_len == 0);
+    ev = grok_voice_parser_feed_line(&p, GROK_VOICE_END);
+    expect_true("bad lengths end dropped", ev == GROK_VOICE_EVT_DROPPED);
+
+    /* Legacy raw body. A raw VOICE_END is the terminator. Text before it,
+     * including wifi clear and a lookalike marker, is not a command. */
+    grok_voice_parser_init(&p);
+    grok_voice_parser_feed_line(&p, GROK_VOICE_BEGIN);
+    expect_true("legacy text",
+                !may_dispatch(grok_voice_parser_feed_line(&p, "hello VOICE_END")));
+    expect_true("legacy space marker",
+                !may_dispatch(grok_voice_parser_feed_line(&p, "VOICE_END ")));
+    expect_true("legacy still framed", p.in_frame);
+    expect_true("legacy wifi",
+                !may_dispatch(grok_voice_parser_feed_line(&p, "wifi clear")));
+    ev = grok_voice_parser_feed_line(&p, GROK_VOICE_END);
+    expect_true("legacy exact end", ev == GROK_VOICE_EVT_DROPPED);
+    expect_true("legacy closed", !p.in_frame);
+
+    memset(huge, 'Z', sizeof(huge) - 1);
+    huge[sizeof(huge) - 1] = '\0';
+    grok_voice_parser_init(&p);
+    grok_voice_parser_feed_line(&p, GROK_VOICE_BEGIN);
+    ev = grok_voice_parser_feed_line(&p, huge);
+    expect_true("1000-char held", ev == GROK_VOICE_EVT_HOLD);
+    expect_true("1000-char framed", p.in_frame);
+    expect_true("1000 then wifi",
+                !may_dispatch(grok_voice_parser_feed_line(&p, "wifi clear")));
+    expect_true("1000 then end",
+                grok_voice_parser_feed_line(&p, GROK_VOICE_END) == GROK_VOICE_EVT_DROPPED);
 }
 
 static void test_limits(void)
@@ -278,6 +349,7 @@ int main(void)
     test_parser_partial_bytes();
     test_parser_feed_line();
     test_wifi_clear_never_dispatched();
+    test_length_and_legacy_markers();
     test_limits();
     test_chunk_captions();
     test_bot_line();

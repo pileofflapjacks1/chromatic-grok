@@ -111,7 +111,8 @@ The proxy asks for a short plain-ASCII reply and caps it for the screen.
 See `docs/laptop-voice.md`. Host sends `voice` verbs and a
 `VOICE_BEGIN` / `VOICE_DATA <len> <payload>` / `VOICE_NL` / `VOICE_END`
 frame. Payload bytes are literal (quotes, backslashes, and the words
-`VOICE_END` / `wifi clear` are caption text). A bad frame is discarded until
-`VOICE_END`, `VOICE_ABORT`, or the line budget, and those lines are not
-console commands. Device replies with `VOICE_BOT <name>` and `VOICE_READY`.
+`VOICE_END` / `wifi clear` are caption text). A bad or truncated frame stays
+open, and its lines are not console commands, until a line that is exactly
+`VOICE_END` or `VOICE_ABORT`. There is no line cap that returns to the
+console early. Device replies with `VOICE_BOT <name>` and `VOICE_READY`.
 **UNTESTED ON HARDWARE.** USB only for this path; no Wi-Fi claim.
