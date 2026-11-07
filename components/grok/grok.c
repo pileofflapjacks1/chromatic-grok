@@ -1066,33 +1066,28 @@ bool grok_voice_handle_line(const char *line)
         s_voice_parser_ready = true;
     }
 
-    /* Framed reply body. */
-    if ((strcmp(line, GROK_VOICE_BEGIN) == 0) ||
-        (strcmp(line, GROK_VOICE_END) == 0) ||
-        s_voice_parser.in_frame)
+    /* Every line goes through the frame parser. Only EVT_LINE may fall
+     * through to a voice verb or esp_console. In-frame reply bytes, including
+     * "wifi clear" and marker text, stay consumed. */
+    ev = grok_voice_parser_feed_line(&s_voice_parser, line);
+    if (ev == GROK_VOICE_EVT_BEGIN)
     {
-        ev = grok_voice_parser_feed_line(&s_voice_parser, line);
-        if (ev == GROK_VOICE_EVT_BEGIN)
-        {
-            grok_ui_voice_thinking();
-            return true;
-        }
-        if (ev == GROK_VOICE_EVT_BODY_LINE)
-        {
-            return true;
-        }
-        if (ev == GROK_VOICE_EVT_END)
-        {
-            grok_ui_voice_set_reply(s_voice_parser.body);
-            grok_say("voice: reply\n");
-            return true;
-        }
-        if (ev == GROK_VOICE_EVT_OVERFLOW)
-        {
-            grok_say("voice: overflow\n");
-            grok_voice_parser_init(&s_voice_parser);
-            return true;
-        }
+        grok_ui_voice_thinking();
+        return true;
+    }
+    if (ev == GROK_VOICE_EVT_END)
+    {
+        grok_ui_voice_set_reply(s_voice_parser.body);
+        grok_say("voice: reply\n");
+        return true;
+    }
+    if (ev == GROK_VOICE_EVT_DROPPED)
+    {
+        grok_say("voice: discarded\n");
+        return true;
+    }
+    if (ev != GROK_VOICE_EVT_LINE)
+    {
         return true;
     }
 

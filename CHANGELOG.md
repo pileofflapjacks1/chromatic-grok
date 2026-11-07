@@ -1,3 +1,17 @@
+## 0.17.1-voice.2 (draft, unreleased)
+
+### Fixed
+- Laptop voice replies are length-prefixed (`VOICE_DATA` / `VOICE_NL`). A body
+  line that is `VOICE_BEGIN`, `VOICE_END`, or `wifi clear` is caption text.
+  Overlong, malformed, and truncated frames stay out of the console until
+  `VOICE_END`, `VOICE_ABORT`, or 700 in-frame lines, then the body is dropped.
+- Host chunks stay within the device line cap (240). A 640-character reply fits
+  the body buffer. Quotes and backslashes are not rewritten.
+
+### Changed
+- App version `0.17.1-voice.2`. The `0.17.1-voice.1` raw body lines are not
+  compatible with this parser. **UNTESTED ON HARDWARE.**
+
 ## 0.17.1-voice.1 (draft, unreleased)
 
 ### Added

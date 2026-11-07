@@ -3,9 +3,9 @@
 **UNTESTED ON HARDWARE.**
 
 Stacked on the bot-menu branch (`0.17.1-grok`). App version for this add-on:
-`0.17.1-voice.1` (keeps the 0.17.1 bot-menu baseline; `0.18.0-grok` and
-`0.19.0-grok` already label other stacked branches, so this uses a distinct
-`-voice.1` suffix instead of bumping into those numbers).
+`0.17.1-voice.2` (keeps the 0.17.1 bot-menu baseline; `0.18.0-grok` and
+`0.19.0-grok` already label other stacked branches, so this stays on the
+`0.17.1-voice` line instead of bumping into those numbers).
 
 Concept inspiration only: GrokPuck-style “talk on the laptop, see a short
 reply on a small screen.” Art on the device is the existing Carty G **v2
@@ -25,7 +25,11 @@ Host → device:
 | `voice` | Enter voice screen; device prints `VOICE_BOT <name>` then `VOICE_READY` |
 | `voice listening` | Ball-loader “listening” state |
 | `voice thinking` | Ball-loader “thinking” state |
-| `VOICE_BEGIN` … lines … `VOICE_END` | Framed reply; device chunks into captions |
+| `VOICE_BEGIN` | Start a reply frame and clear the body | 
+| `VOICE_DATA <len> <payload>` | Append exactly `<len>` literal payload bytes | 
+| `VOICE_NL` | Append one newline | 
+| `VOICE_END` | Finish the frame. A clean body is shown. A failed frame is dropped | 
+| `VOICE_ABORT` | Drop the frame and return to the console |
 | `voice next` / `voice prev` | Cycle caption phrases |
 | `voice bot` | Re-print `VOICE_BOT <name>` |
 | `voice close` | Close overlay |
@@ -41,8 +45,35 @@ D-pad **Left/Right** on the voice screen cycles the PR #11 bot list and
 prints `VOICE_BOT <name>` again. **A / Down** advances captions; **Up** goes
 back; **B / Start** closes.
 
-Parsing is line-based with a bounded buffer (`GROK_VOICE_LINE_MAX` /
-`GROK_VOICE_BODY_MAX`) and tolerates partial USB reads on the host side.
+Payload bytes are literal. The host does not turn `"` into `'` and does not
+treat `\` as an escape. A newline in the reply is a `VOICE_NL` line because
+the console ends a command on CR/LF. `VOICE_CHUNK_MAX` is 225 so a
+`VOICE_DATA` line is at most `GROK_VOICE_LINE_MAX` (240). The body cap and
+the host cap are both 640 characters.
+
+`0.17.1-voice.1` sent raw body lines between `VOICE_BEGIN` and `VOICE_END`.
+This version does not. An old host against this firmware gets `voice:
+discarded` instead of a caption, and those raw lines are not executed. No
+field device is known to be running `0.17.1-voice.1` (that build was
+untested on hardware).
+
+Recovery, in order:
+
+- `VOICE_END` shows the body when every chunk was well formed. If any chunk
+  was overlong, the wrong length, or not a `VOICE_DATA` / `VOICE_NL` line,
+  the body is cleared and the device prints `voice: discarded`.
+- `VOICE_ABORT` does the same clear without showing a reply.
+- There is no millisecond timeout. After 700 non-terminator lines inside one
+  frame the device closes the frame, drops the body, and the next line is a
+  normal console command again. A max-length reply of 640 newlines fits
+  (640 `VOICE_NL` lines). The line that crosses the budget is consumed and
+  is not executed.
+- `voice close` typed during an open frame is frame junk, not the close
+  verb. Send `VOICE_ABORT` to unlock the console.
+
+A line the parser accepts is never passed to `esp_console_run`. That includes
+`wifi clear` after a 241-character line and a payload whose text is
+`VOICE_END` or `wifi clear`.
 
 ## Windows laptop install (Joe)
 
@@ -118,11 +149,13 @@ modes; the laptop-voice path itself only needs USB serial + the laptop key.
 sh tests/run_host.sh
 ```
 
-Includes `tests/test_grok_voice.c` (framing + caption chunking).
+Includes `tests/test_grok_voice.c` and `tests/test_voice_frame.py` (device
+parser fed by `frame_reply_lines`, plus the `wifi clear` dispatch regression).
 
 ## Risks
 
-- Untested on hardware.
+- **UNTESTED ON HARDWARE.**
+- Incompatible with the `0.17.1-voice.1` raw-line frame.
 - `pynput` / mic permissions vary by Windows build.
 - faster-whisper first download needs network; later runs can be offline for STT.
 - Caption chunking is best-effort ASCII fold; long replies need A to page phrases.

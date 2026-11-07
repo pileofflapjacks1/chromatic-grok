@@ -35,6 +35,9 @@ SYSTEM = (
 DEFAULT_MODEL = "grok-4.7"
 XAI_URL = "https://api.x.ai/v1/responses"
 MAX_CHARS = 640
+# Matches GROK_VOICE_CHUNK_MAX. A full line is "VOICE_DATA " + digits + payload
+# and must stay within GROK_VOICE_LINE_MAX (240).
+VOICE_CHUNK_MAX = 225
 _KEY_PATTERN = re.compile(r"xai-[A-Za-z0-9_\-]+")
 
 
@@ -66,6 +69,28 @@ def fold_ascii(text: str, max_chars: int = MAX_CHARS) -> str:
     if len(folded) > max_chars:
         folded = folded[: max_chars - 3].rstrip() + "..."
     return folded
+
+
+def frame_reply_lines(text: str) -> list[str]:
+    """Length-prefixed voice frame. Payload bytes are literal.
+
+    Newlines cannot sit inside a console line, so they are VOICE_NL markers.
+    A payload may contain the characters VOICE_END, quotes, and backslashes.
+    No quote substitution. Each emitted line is at most 240 characters.
+    """
+    folded = fold_ascii("" if text is None else text, MAX_CHARS)
+    lines = ["VOICE_BEGIN"]
+    parts = folded.split("\n")
+    for index, part in enumerate(parts):
+        start = 0
+        while start < len(part):
+            chunk = part[start : start + VOICE_CHUNK_MAX]
+            start += len(chunk)
+            lines.append("VOICE_DATA %d %s" % (len(chunk), chunk))
+        if index != len(parts) - 1:
+            lines.append("VOICE_NL")
+    lines.append("VOICE_END")
+    return lines
 
 
 def extract_reply(payload):
@@ -163,12 +188,8 @@ class ChromaticSerial:
             self._ser.flush()
 
     def send_framed_reply(self, text: str):
-        self.write_line("VOICE_BEGIN")
-        for raw in text.splitlines() or [text]:
-            line = fold_ascii(raw, MAX_CHARS)
-            if line:
-                self.write_line(line)
-        self.write_line("VOICE_END")
+        for line in frame_reply_lines(text):
+            self.write_line(line)
 
     def _read_loop(self):
         buf = b""

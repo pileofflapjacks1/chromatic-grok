@@ -15,61 +15,180 @@ void grok_voice_parser_init(GrokVoiceParser_t *p)
     memset(p, 0, sizeof(*p));
 }
 
-static void trim_trailing(char *s)
+static void clear_body(GrokVoiceParser_t *p)
 {
-    size_t n;
-
-    if (s == NULL)
-    {
-        return;
-    }
-    n = strlen(s);
-    while ((n > 0) && ((s[n - 1] == '\r') || (s[n - 1] == '\n') ||
-                       (s[n - 1] == ' ') || (s[n - 1] == '\t')))
-    {
-        s[--n] = '\0';
-    }
+    p->body[0] = '\0';
+    p->body_len = 0;
 }
 
-static GrokVoiceEvt_t handle_complete_line(GrokVoiceParser_t *p, const char **line_out)
+static void mark_fail(GrokVoiceParser_t *p)
 {
-    trim_trailing(p->line);
-    if (line_out != NULL)
-    {
-        *line_out = p->line;
-    }
+    p->fail = true;
+    clear_body(p);
+}
 
-    if (strcmp(p->line, GROK_VOICE_BEGIN) == 0)
+static void close_frame(GrokVoiceParser_t *p)
+{
+    p->in_frame = false;
+    p->fail = false;
+    p->frame_lines = 0;
+}
+
+/* Count one in-frame line. Past the budget the line is still consumed and
+ * the frame closes so a later console command can run. */
+static GrokVoiceEvt_t count_frame_line(GrokVoiceParser_t *p)
+{
+    if (p->frame_lines < 0xffffu)
     {
+        p->frame_lines++;
+    }
+    if (p->frame_lines > GROK_VOICE_FRAME_MAX_LINES)
+    {
+        clear_body(p);
+        close_frame(p);
+        return GROK_VOICE_EVT_DROPPED;
+    }
+    return GROK_VOICE_EVT_HOLD;
+}
+
+static bool append_bytes(GrokVoiceParser_t *p, const char *src, size_t n)
+{
+    if (p->fail)
+    {
+        return false;
+    }
+    if (n > (GROK_VOICE_BODY_MAX - p->body_len))
+    {
+        mark_fail(p);
+        return false;
+    }
+    if (n > 0)
+    {
+        memcpy(p->body + p->body_len, src, n);
+        p->body_len += n;
+    }
+    p->body[p->body_len] = '\0';
+    return true;
+}
+
+/* 1 = well formed, 0 = not a data line, -1 = data line with a bad length. */
+static int parse_data_line(const char *line, const char **payload, size_t *out_len)
+{
+    const char *p;
+    size_t n = 0;
+    int digits = 0;
+
+    if (strncmp(line, GROK_VOICE_DATA_PREFIX, strlen(GROK_VOICE_DATA_PREFIX)) != 0)
+    {
+        return 0;
+    }
+    p = line + strlen(GROK_VOICE_DATA_PREFIX);
+    while ((*p >= '0') && (*p <= '9'))
+    {
+        size_t digit = (size_t)(*p - '0');
+
+        if ((digits >= 3) || (n > ((GROK_VOICE_LINE_MAX - digit) / 10u)))
+        {
+            return -1;
+        }
+        n = (n * 10u) + digit;
+        digits++;
+        p++;
+    }
+    if ((digits == 0) || (*p != ' '))
+    {
+        return -1;
+    }
+    *payload = p + 1;
+    *out_len = n;
+    return 1;
+}
+
+static int is_bare_token(const char *line)
+{
+    return (strcmp(line, GROK_VOICE_END) == 0) ||
+           (strcmp(line, GROK_VOICE_ABORT) == 0) ||
+           (strcmp(line, GROK_VOICE_NL) == 0) ||
+           (strncmp(line, GROK_VOICE_DATA_PREFIX, strlen(GROK_VOICE_DATA_PREFIX)) == 0);
+}
+
+static GrokVoiceEvt_t accept_line(GrokVoiceParser_t *p, const char *line)
+{
+    const char *payload = NULL;
+    size_t want = 0;
+    int parsed;
+
+    if (strcmp(line, GROK_VOICE_BEGIN) == 0)
+    {
+        close_frame(p);
         p->in_frame = true;
-        p->body[0] = '\0';
-        p->body_len = 0;
+        clear_body(p);
         return GROK_VOICE_EVT_BEGIN;
     }
-    if (strcmp(p->line, GROK_VOICE_END) == 0)
+    if (!p->in_frame)
     {
-        p->in_frame = false;
+        /* A token with no open frame is not a console command. */
+        if (is_bare_token(line))
+        {
+            return GROK_VOICE_EVT_HOLD;
+        }
+        return GROK_VOICE_EVT_LINE;
+    }
+    if (strcmp(line, GROK_VOICE_END) == 0)
+    {
+        if (p->fail)
+        {
+            clear_body(p);
+            close_frame(p);
+            return GROK_VOICE_EVT_DROPPED;
+        }
+        close_frame(p);
         return GROK_VOICE_EVT_END;
     }
-    if (p->in_frame)
+    if (strcmp(line, GROK_VOICE_ABORT) == 0)
     {
-        size_t len = strlen(p->line);
-        size_t need = len + ((p->body_len > 0) ? 1u : 0u);
+        clear_body(p);
+        close_frame(p);
+        return GROK_VOICE_EVT_DROPPED;
+    }
 
-        if ((p->body_len + need) >= GROK_VOICE_BODY_MAX)
+    {
+        GrokVoiceEvt_t budget = count_frame_line(p);
+
+        if (budget == GROK_VOICE_EVT_DROPPED)
         {
-            return GROK_VOICE_EVT_OVERFLOW;
+            return budget;
         }
-        if (p->body_len > 0)
+    }
+    if (p->fail)
+    {
+        return GROK_VOICE_EVT_HOLD;
+    }
+    if (strcmp(line, GROK_VOICE_NL) == 0)
+    {
+        if (!append_bytes(p, "\n", 1))
         {
-            p->body[p->body_len++] = '\n';
+            return GROK_VOICE_EVT_HOLD;
         }
-        memcpy(p->body + p->body_len, p->line, len);
-        p->body_len += len;
-        p->body[p->body_len] = '\0';
         return GROK_VOICE_EVT_BODY_LINE;
     }
-    return GROK_VOICE_EVT_LINE;
+    parsed = parse_data_line(line, &payload, &want);
+    if (parsed == 1)
+    {
+        if (strlen(payload) != want)
+        {
+            mark_fail(p);
+            return GROK_VOICE_EVT_HOLD;
+        }
+        if (!append_bytes(p, payload, want))
+        {
+            return GROK_VOICE_EVT_HOLD;
+        }
+        return GROK_VOICE_EVT_BODY_LINE;
+    }
+    /* Raw reply text, including "wifi clear" or a marker word, is not a command. */
+    mark_fail(p);
+    return GROK_VOICE_EVT_HOLD;
 }
 
 GrokVoiceEvt_t grok_voice_parser_feed(GrokVoiceParser_t *p, char ch,
@@ -87,12 +206,26 @@ GrokVoiceEvt_t grok_voice_parser_feed(GrokVoiceParser_t *p, char ch,
     {
         return GROK_VOICE_EVT_NONE;
     }
+    if (p->skip_rest)
+    {
+        if (ch == '\n')
+        {
+            p->skip_rest = false;
+            p->line_len = 0;
+            p->line[0] = '\0';
+        }
+        return GROK_VOICE_EVT_NONE;
+    }
     if (ch == '\n')
     {
         GrokVoiceEvt_t ev;
 
         p->line[p->line_len] = '\0';
-        ev = handle_complete_line(p, line_out);
+        ev = accept_line(p, p->line);
+        if (line_out != NULL)
+        {
+            *line_out = p->line;
+        }
         p->line_len = 0;
         p->line[0] = '\0';
         return ev;
@@ -105,6 +238,16 @@ GrokVoiceEvt_t grok_voice_parser_feed(GrokVoiceParser_t *p, char ch,
     {
         p->line_len = 0;
         p->line[0] = '\0';
+        if (p->in_frame)
+        {
+            GrokVoiceEvt_t ev;
+
+            mark_fail(p);
+            ev = count_frame_line(p);
+            /* Keep discarding this physical line even if the budget closed the frame. */
+            p->skip_rest = true;
+            return ev;
+        }
         return GROK_VOICE_EVT_OVERFLOW;
     }
     p->line[p->line_len++] = ch;
@@ -114,32 +257,29 @@ GrokVoiceEvt_t grok_voice_parser_feed(GrokVoiceParser_t *p, char ch,
 
 GrokVoiceEvt_t grok_voice_parser_feed_line(GrokVoiceParser_t *p, const char *line)
 {
-    size_t i;
+    size_t n = 0;
 
     if ((p == NULL) || (line == NULL))
     {
         return GROK_VOICE_EVT_NONE;
     }
-    p->line_len = 0;
-    p->line[0] = '\0';
-    for (i = 0; line[i] != '\0'; i++)
+    while ((line[n] != '\0') && (line[n] != '\r') && (line[n] != '\n'))
     {
-        char ch = line[i];
-
-        if ((ch == '\r') || (ch == '\n'))
+        n++;
+        if (n > GROK_VOICE_LINE_MAX)
         {
-            break;
+            if (p->in_frame)
+            {
+                mark_fail(p);
+                return count_frame_line(p);
+            }
+            return GROK_VOICE_EVT_LINE;
         }
-        if (p->line_len >= GROK_VOICE_LINE_MAX)
-        {
-            p->line_len = 0;
-            p->line[0] = '\0';
-            return GROK_VOICE_EVT_OVERFLOW;
-        }
-        p->line[p->line_len++] = ch;
     }
-    p->line[p->line_len] = '\0';
-    return handle_complete_line(p, NULL);
+    memcpy(p->line, line, n);
+    p->line[n] = '\0';
+    p->line_len = n;
+    return accept_line(p, p->line);
 }
 
 bool grok_voice_is_cmd_line(const char *line)

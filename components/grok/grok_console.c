@@ -100,7 +100,9 @@ static void run_line(char *line)
     int ret = 0;
     esp_err_t err;
 
-    /* Framed VOICE_* lines and "voice ..." verbs bypass esp_console. */
+    /* Voice verbs and an open VOICE_* frame bypass esp_console. Reply
+     * bytes stay inside the frame until VOICE_END, VOICE_ABORT, or the
+     * line budget. */
     if (grok_voice_handle_line(line))
     {
         return;
