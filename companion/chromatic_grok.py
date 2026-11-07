@@ -46,14 +46,12 @@ def open_port(path):
     if serial is None:
         sys.stderr.write("pyserial is not installed. Run: python3 -m pip install -r companion/requirements.txt\n")
         return None
-    port = serial.Serial()
-    port.port = path
-    port.baudrate = 115200
-    port.timeout = 0.2
-    port.dtr = False
-    port.rts = False
-    port.open()
-    return port
+    tools = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    from console_port import open_console_port
+
+    return open_console_port(path, serial_module=serial)
 
 
 def read_until(port, marker, timeout):

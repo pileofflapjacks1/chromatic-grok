@@ -167,9 +167,10 @@ def ask_xai(prompt: str, timeout: int = 30):
 
 class ChromaticSerial:
     def __init__(self, port: str, baud: int = 115200):
-        import serial
+        from console_port import open_console_port
 
-        self._ser = serial.Serial(port, baudrate=baud, timeout=0.2)
+        # DTR and RTS are cleared on the closed port, then open() applies them.
+        self._ser = open_console_port(port, baud=baud, timeout=0.2)
         self._lock = threading.Lock()
         self.bot_name = None
         self._rx_thread = threading.Thread(target=self._read_loop, daemon=True)

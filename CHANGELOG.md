@@ -1,5 +1,13 @@
 ## 0.17.1-voice.3 (draft, unreleased)
 
+### Host
+- `voice_ptt.py` and the Python companion open the USB console with DTR and
+  RTS set false before `open()`. `requests==2.34.2` is pinned for
+  `faster-whisper` 1.1.1 on Python 3.13. The voice.3 firmware image is
+  unchanged. **UNTESTED ON HARDWARE** beyond one readiness report from Joe
+  via Carty (`VOICE_BOT` / `VOICE_READY`, no freeze). Microphone path not
+  verified.
+
 ### Fixed
 - An open voice frame no longer returns to the console after 700 lines.
   Overlong, malformed, and truncated frames discard reply bytes until a line

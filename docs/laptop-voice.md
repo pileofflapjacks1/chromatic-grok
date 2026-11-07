@@ -88,18 +88,35 @@ lines, and a payload whose text is `VOICE_END` or `wifi clear`.
 
 ## Windows laptop install (Joe)
 
-1. Python **3.10+** (3.11 or 3.12 recommended). From a fresh PowerShell:
+A GitHub branch ZIP does not unpack into a folder named exactly
+`chromatic-grok`. Code → Download ZIP for
+`awesome-coder/voice-safe-framing` extracts a nested directory whose name
+looks like `chromatic-grok-awesome-coder-voice-safe-framing`. Open that
+directory and confirm `tools\voice_ptt.py` is there before the commands
+below. If `tools` is not in the current directory, `pip` and `py` will not
+see these files.
+
+1. Python **3.10+**. Joe used Python 3.13 for the COM-port open that printed
+   `VOICE_BOT` and `VOICE_READY`. `faster-whisper` 1.1.1 declares
+   `Requires-Python >=3.9` and its classifiers list 3.9 through 3.11. This
+   workspace checked the requirements file with Python 3.12.3 and did not
+   install the full speech stack on 3.13.
 
 ```bat
 py -3 --version
 ```
 
-2. In the repo checkout:
+2. From the directory that contains `tools`:
 
 ```bat
-cd chromatic-grok
 py -3 -m pip install -r tools\requirements-voice.txt
 ```
+
+`tools\requirements-voice.txt` pins `requests==2.34.2` because
+`faster-whisper` 1.1.1 pulls in `huggingface-hub`, and that import failed
+on Python 3.13 with `ModuleNotFoundError: requests`. `2.34.2` is the
+current release on PyPI, requires Python `>=3.10`, and the project
+vulnerability list was empty when the pin was added.
 
 First run of `faster-whisper` downloads the chosen model weights (default
 `base.en`) into the local cache.
@@ -121,7 +138,27 @@ set XAI_API_KEY=your-key-here
 ```
 
 5. Plug in the Chromatic (USB). Close Miniterm / MR Updater / other serial
-   apps. Then:
+   apps. `tools\voice_ptt.py` opens the COM port with pyserial's `dtr` and
+   `rts` set False on the closed port, then calls `open()`. `rtscts`,
+   `dsrdtr`, and `xonxoff` stay off. pyserial 3.5's `Serial(port)` opens
+   immediately with DTR and RTS left at their default True; clearing them
+   after that is too late for `open()`.
+
+   Joe, via Carty, reported one Windows Python 3.13 open of COM4 with that
+   before-open ordering. The device printed `VOICE_BOT Carty G` and
+   `VOICE_READY` and did not freeze. The microphone, speech-to-text, and
+   caption path was not part of that report. pyserial's own `open()`
+   documentation says some operating systems or drivers can still assert
+   RTS or DTR when the port opens, even if the requested level is False.
+   This tree does not claim that driver glitch is gone.
+
+   Optional, still no microphone and no network:
+
+```bat
+py -3 tools\voice_probe.py --port COM4
+```
+
+   Push-to-talk:
 
 ```bat
 py -3 tools\voice_ptt.py --port COM4 --hotkey space
@@ -134,7 +171,8 @@ Optional: `--whisper-model tiny.en` for a smaller/faster local model.
 
 ## Flash this firmware (USB)
 
-**UNTESTED ON HARDWARE.** From an ESP-IDF 5.3 command prompt, with the
+**UNTESTED ON HARDWARE.** The DTR/RTS host change does not replace the
+`0.17.1-voice.3` image. Keep the files already on the draft release. From an ESP-IDF 5.3 command prompt, with the
 release files in the current folder, Chromatic on **COM4** at **115200**.
 Close any serial monitor first. Do **not** erase flash; do **not** rewrite
 the bootloader at `0x1000` unless you intend a full recovery.
