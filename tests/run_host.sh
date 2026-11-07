@@ -16,4 +16,5 @@ cc -std=c11 -Wall -Wextra -Werror -I components/grok \
 /tmp/test_grok_text
 python3 tests/test_proxy_extract.py
 python3 tests/test_proxy_auth.py
+python3 tests/test_usb_quoting.py
 python3 -m py_compile companion/proxy.py companion/chromatic_grok.py
