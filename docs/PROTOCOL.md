@@ -2,7 +2,7 @@
 
 The serial console and the BLE RX characteristic use the same ASCII lines. A line ends with `\n`. `\r` is ignored. The console prompt is `mcu> ` at 115200 8N1.
 
-Quote a value that contains spaces. The console keeps at most 32 arguments, so quote a long prompt as one argument. A BLE line is about 240 bytes; the last word keeps the rest of that line. Passwords are not printed back.
+Quote a value that contains spaces. The USB console (`esp_console_split_argv`) treats `\` as an escape for `\`, `"`, and space, and drops any other escaped character. Companions escape `\` and `"` before sending a line on USB. BLE `split_args` does not treat `\` as an escape and ends a quote at the next raw `"`, so do not send USB-style backslash escapes over BLE. The console keeps at most 32 arguments, so quote a long prompt as one argument. A BLE line is about 240 bytes; the last word keeps the rest of that line. Passwords are not printed back.
 
 ## Wi-Fi
 

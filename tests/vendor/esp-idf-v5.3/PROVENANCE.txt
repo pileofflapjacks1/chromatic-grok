@@ -1,0 +1,11 @@
+ESP-IDF v5.3 console argument splitter, stored byte-for-byte so host tests
+do not download it.
+
+Source: https://github.com/espressif/esp-idf/blob/v5.3/components/console/split_argv.c
+Git tag: v5.3
+Path: components/console/split_argv.c
+License: Apache-2.0 (SPDX header inside split_argv.c)
+SHA256: 9df84ac7f41845c21260a3062480bb93a6969a844e984461242ce459093bcc91
+Bytes: 3167
+
+Host tests refuse to compile the file when the SHA256 does not match.

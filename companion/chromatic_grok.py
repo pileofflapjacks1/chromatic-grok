@@ -36,10 +36,31 @@ def default_port():
 
 
 def quote_arg(text):
-    cleaned = text.replace('"', "'").replace("\r", " ").replace("\n", " ")
-    if cleaned == "" or any(ch in cleaned for ch in " \t"):
-        return '"' + cleaned + '"'
-    return cleaned
+    """Escape one argument for the USB mcu> console (esp_console_split_argv).
+
+    The console ends a line on CR or LF, ignores other controls, and treats
+    DEL as backspace. `\\` escapes `\\`, `"`, and space. Wrap when the text
+    is empty or contains a space, backslash, or quote so it stays one
+    argument.
+
+    BLE split_args does not treat backslash as an escape. This string is for
+    the serial console only.
+    """
+    if text is None:
+        text = ""
+    body = []
+    for ch in text:
+        code = ord(ch)
+        if ch in "\r\n\t":
+            body.append(" ")
+        elif ch in '\\"':
+            body.append("\\" + ch)
+        elif 32 <= code <= 126:
+            body.append(ch)
+    escaped = "".join(body)
+    if escaped == "" or any(ch in escaped for ch in " \\\""):
+        return '"' + escaped + '"'
+    return escaped
 
 
 def open_port(path):

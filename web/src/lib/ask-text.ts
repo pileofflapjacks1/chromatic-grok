@@ -24,13 +24,19 @@ export function foldReply(text: string, maxChars = REPLY_MAX): string {
 }
 
 /**
- * One quoted `grok show` line for the mcu console. The firmware's argument
- * splitter (split_args in components/grok/grok.c) ends a quoted argument at
- * the next `"` and has no backslash escapes, so `"` becomes `'` (the same as
- * quote_arg in companion/chromatic_grok.py) and `\` is sent as is.
+ * One `grok show` line for the USB console.
+ *
+ * Web Serial is read by grok_console.c, which calls esp_console_run().
+ * That splitter (esp_console_split_argv) treats `\` as an escape for `\`,
+ * `"`, and space, and drops any other escaped character. Escape `\` first,
+ * then `"`, so the show text matches foldReply().
+ *
+ * BLE uses split_args() in components/grok/grok.c. It has no backslash
+ * escapes and ends a quote at the next raw `"`. Do not send this line
+ * over BLE.
  */
 export function grokShowLine(reply: string): string {
-  const cleaned = foldReply(reply).replaceAll('"', "'");
+  const cleaned = foldReply(reply).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
   return `grok show "${cleaned}"\n`;
 }
 
