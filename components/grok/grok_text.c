@@ -392,6 +392,146 @@ size_t grok_text_wrap(const char *text, char *storage, size_t line_stride,
     (void)col;
     return line;
 }
+
+static void caption_emit(size_t line_i, size_t page, size_t page_lines,
+                         const char *cur, size_t col,
+                         char *dst, size_t dst_cap, size_t *used, int *any)
+{
+    size_t start;
+    size_t end;
+    size_t i;
+
+    if ((dst == NULL) || (dst_cap == 0) || (page_lines == 0))
+    {
+        return;
+    }
+    start = page * page_lines;
+    end = start + page_lines;
+    if ((line_i < start) || (line_i >= end))
+    {
+        return;
+    }
+    if (*any && (*used + 1) < dst_cap)
+    {
+        dst[(*used)++] = '\n';
+    }
+    for (i = 0; (i < col) && ((*used + 1) < dst_cap); i++)
+    {
+        dst[(*used)++] = cur[i];
+    }
+    dst[*used] = '\0';
+    *any = 1;
+}
+
+size_t grok_text_caption_page(const char *text, size_t cols, size_t page,
+                              size_t page_lines, char *dst, size_t dst_cap)
+{
+    const char *p;
+    char cur[64];
+    size_t col = 0;
+    size_t line_i = 0;
+    size_t used = 0;
+    int any = 0;
+
+    if ((dst != NULL) && (dst_cap > 0))
+    {
+        dst[0] = '\0';
+    }
+    if ((cols == 0) || (cols >= sizeof(cur)))
+    {
+        return 0;
+    }
+    if (text == NULL)
+    {
+        text = "";
+    }
+    p = text;
+    while (*p != '\0')
+    {
+        size_t word;
+
+        if ((*p == '\n') || (*p == ' ') || (*p == '\t'))
+        {
+            if (*p == '\n')
+            {
+                caption_emit(line_i, page, page_lines, cur, col, dst, dst_cap, &used, &any);
+                line_i++;
+                col = 0;
+            }
+            p++;
+            continue;
+        }
+
+        word = 0;
+        while ((p[word] != '\0') && (p[word] != ' ') && (p[word] != '\t') && (p[word] != '\n'))
+        {
+            word++;
+        }
+        if (word > cols)
+        {
+            size_t take = cols - col;
+
+            if (take == 0)
+            {
+                caption_emit(line_i, page, page_lines, cur, col, dst, dst_cap, &used, &any);
+                line_i++;
+                col = 0;
+                continue;
+            }
+            memcpy(cur + col, p, take);
+            col += take;
+            p += take;
+            caption_emit(line_i, page, page_lines, cur, col, dst, dst_cap, &used, &any);
+            line_i++;
+            col = 0;
+            continue;
+        }
+        if ((col > 0) && ((col + 1 + word) > cols))
+        {
+            caption_emit(line_i, page, page_lines, cur, col, dst, dst_cap, &used, &any);
+            line_i++;
+            col = 0;
+            continue;
+        }
+        if (col > 0)
+        {
+            cur[col++] = ' ';
+        }
+        memcpy(cur + col, p, word);
+        col += word;
+        p += word;
+    }
+    if (col > 0)
+    {
+        caption_emit(line_i, page, page_lines, cur, col, dst, dst_cap, &used, &any);
+        line_i++;
+    }
+    return line_i;
+}
+
+size_t grok_text_caption_step(size_t page, size_t line_count, size_t page_lines, int delta)
+{
+    size_t pages;
+
+    if (page_lines == 0)
+    {
+        return 0;
+    }
+    pages = (line_count == 0) ? 1u : ((line_count + page_lines - 1u) / page_lines);
+    if (page >= pages)
+    {
+        page = pages - 1u;
+    }
+    if ((delta > 0) && ((page + 1u) < pages))
+    {
+        page++;
+    }
+    else if ((delta < 0) && (page > 0))
+    {
+        page--;
+    }
+    return page;
+}
 /* Like grok_text_json_get_string, but a match whose value is not a string
  * (object, array, number) is skipped instead of ending the search. */
 static bool find_string(const char *json, const char *key, char *out, size_t out_cap)

@@ -1,3 +1,62 @@
+## 0.17.1-voice.5 (draft, unreleased)
+
+### Changed
+- Voice screen look: amber header bar with the bot name and a Listening /
+  Thinking / Reply status, navy background, cream reply text in a rounded
+  cyan-bordered panel, a footer bar with `A next B exit`, the page as `2/4`,
+  and up/down triangles that dim at the ends. The ball loader keeps its art
+  with voice colors and cyan (listening) or amber (thinking) dots.
+- Voice caption page is **18 columns by 11 rows** (was 20 by 13) because the
+  border and padding take room. Voice rows are 9 px; the plain overlay's 10 px
+  rows are unchanged. Paging, A/Up/Down, B and the DTR/RTS fix are unchanged.
+  The plain reply and picker pages are unchanged.
+- `tools/voice_preview.py` renders a host preview and prints contrast ratios.
+- **UNTESTED ON HARDWARE.** Colors on the Chromatic LCD (with its color
+  correction) are not verified.
+
+## 0.17.1-voice.4 (draft, unreleased)
+
+### Fixed
+- Voice captions wrap on the 20-column unscii_8 body (13 rows) and A/Up
+  move by those wrapped lines. The 640-character cap stays. **UNTESTED ON
+  HARDWARE.**
+
+### Host
+- `--list-mics` and `--mic`. The default input skips a device whose name
+  contains Chromatic. **UNTESTED ON HARDWARE.**
+
+## 0.17.1-voice.3 (draft, unreleased)
+
+### Host
+- `voice_ptt.py` and the Python companion open the USB console with DTR and
+  RTS set false before `open()`. `requests==2.34.2` is pinned for
+  `faster-whisper` 1.1.1 on Python 3.13. The voice.3 firmware image is
+  unchanged. **UNTESTED ON HARDWARE** beyond one readiness report from Joe
+  via Carty (`VOICE_BOT` / `VOICE_READY`, no freeze). Microphone path not
+  verified.
+
+### Fixed
+- An open voice frame no longer returns to the console after 700 lines.
+  Overlong, malformed, and truncated frames discard reply bytes until a line
+  that is exactly `VOICE_END` or `VOICE_ABORT`. `wifi clear` past that old
+  cap is not executed. Length fields that do not match the payload fail
+  closed the same way. **UNTESTED ON HARDWARE.**
+
+## 0.17.1-voice.2 (draft, unreleased)
+
+### Fixed
+- Laptop voice replies are length-prefixed (`VOICE_DATA` / `VOICE_NL`). A body
+  line that is `VOICE_BEGIN`, `VOICE_END`, or `wifi clear` is caption text.
+  Overlong, malformed, and truncated frames stay out of the console until
+  `VOICE_END`, `VOICE_ABORT`, or 700 in-frame lines, then the body is dropped.
+- Host chunks stay within the device line cap (240). A 640-character reply fits
+  the body buffer. Quotes and backslashes are not rewritten.
+
+### Changed
+- App version `0.17.1-voice.2` (superseded by `0.17.1-voice.3`; that image
+  closed the frame after 700 lines). The `0.17.1-voice.1` raw body lines are not
+  compatible with this parser. **UNTESTED ON HARDWARE.**
+
 ## 0.17.1-voice.1 (draft, unreleased)
 
 ### Added

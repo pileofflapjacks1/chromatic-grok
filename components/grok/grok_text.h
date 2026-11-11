@@ -6,8 +6,11 @@
 #include <stddef.h>
 #include <stdbool.h>
 
-/* Overlay wrap: 20 columns of 8 px unscii_8 on the 160 px screen; 52 lines = 4 pages of 13. */
+/* Overlay wrap: unscii_8 is 8x8. 160/8 = 20 columns.
+ * Header at y=1, body at y=11, line pitch 9, footer at y=135 on a 144 px
+ * screen: (135-11)/9 = 13 body rows. 52 lines = 4 pages of those 13. */
 #define GROK_TEXT_COLS 20
+#define GROK_TEXT_PAGE_LINES 13
 #define GROK_TEXT_LINES 52
 #define GROK_REPLY_MAX 640
 #define GROK_PROMPT_MAX 200
@@ -28,6 +31,22 @@ bool grok_text_json_get_string(const char *json, const char *key, char *out, siz
  */
 size_t grok_text_wrap(const char *text, char *storage, size_t line_stride,
                       size_t max_lines, size_t cols);
+
+/* Caption pages for the voice screen. Same column break as grok_text_wrap,
+ * with no ellipsis, so every word character is on some page.
+ * Spaces and tabs collapse to one space between words. A newline ends a
+ * line; a newline on an empty line keeps a blank line. A word longer than
+ * cols is split every cols characters.
+ * Returns the wrapped line count (0 if there is nothing to show).
+ * When dst is not NULL, writes 0-based page as newline-separated lines
+ * with no trailing newline. */
+size_t grok_text_caption_page(const char *text, size_t cols, size_t page,
+                              size_t page_lines, char *dst, size_t dst_cap);
+
+/* Move one caption page toward the ends and stop there. pages is the
+ * wrapped line count. page_lines is the rows on one screen. */
+size_t grok_text_caption_step(size_t page, size_t line_count, size_t page_lines,
+                              int delta);
 
 /* Text of the first output_text block in an xAI/OpenAI Responses API body. */
 bool grok_text_responses_text(const char *json, char *out, size_t out_cap);
