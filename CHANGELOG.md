@@ -1,3 +1,19 @@
+## 0.17.1-voice.5 (draft, unreleased)
+
+### Changed
+- Voice screen look: amber header bar with the bot name and a Listening /
+  Thinking / Reply status, navy background, cream reply text in a rounded
+  cyan-bordered panel, a footer bar with `A next B exit`, the page as `2/4`,
+  and up/down triangles that dim at the ends. The ball loader keeps its art
+  with voice colors and cyan (listening) or amber (thinking) dots.
+- Voice caption page is **18 columns by 11 rows** (was 20 by 13) because the
+  border and padding take room. Voice rows are 9 px; the plain overlay's 10 px
+  rows are unchanged. Paging, A/Up/Down, B and the DTR/RTS fix are unchanged.
+  The plain reply and picker pages are unchanged.
+- `tools/voice_preview.py` renders a host preview and prints contrast ratios.
+- **UNTESTED ON HARDWARE.** Colors on the Chromatic LCD (with its color
+  correction) are not verified.
+
 ## 0.17.1-voice.4 (draft, unreleased)
 
 ### Fixed

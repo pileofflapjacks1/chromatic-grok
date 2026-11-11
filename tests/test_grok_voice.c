@@ -344,8 +344,147 @@ static void test_bot_line(void)
     expect_true("bot null", strcmp(out, "VOICE_BOT ?\n") == 0);
 }
 
+
+static void expect_str(const char *name, const char *got, const char *want)
+{
+    if (strcmp(got, want) != 0)
+    {
+        fprintf(stderr, "FAIL %s: got \"%s\" want \"%s\"\n", name, got, want);
+        g_failed++;
+    }
+}
+
+/* Append the words of page (newline-separated rows) to all, one space between. */
+static void append_page(char *all, const char *page)
+{
+    size_t n = strlen(all);
+
+    for (const char *c = page; *c != '\0'; c++)
+    {
+        if ((*c == '\n') || (*c == ' '))
+        {
+            continue;
+        }
+        all[n++] = *c;
+    }
+    all[n] = '\0';
+}
+
+static void test_voice_layout(void)
+{
+    char out[32];
+    char page[512];
+    char all[GROK_REPLY_MAX + 8];
+    char maxed[GROK_REPLY_MAX + 1];
+    size_t lines;
+    size_t pages;
+    size_t pno;
+
+    /* The page is 18 x 11 and fits inside the bordered panel. */
+    expect_true("cols", GROK_VOICE_COLS == 18);
+    expect_true("rows", GROK_VOICE_ROWS == 11);
+    expect_true("text right edge inside border",
+                (GROK_VOICE_TEXT_X + (GROK_VOICE_COLS * GROK_VOICE_GLYPH)) <
+                (GROK_VOICE_PANEL_X + GROK_VOICE_PANEL_W - 1));
+    expect_true("text bottom inside border",
+                (GROK_VOICE_TEXT_Y + ((GROK_VOICE_ROWS - 1) * GROK_VOICE_PITCH) + GROK_VOICE_GLYPH) <
+                (GROK_VOICE_PANEL_Y + GROK_VOICE_PANEL_H - 1));
+    expect_true("text top below border", GROK_VOICE_TEXT_Y > (GROK_VOICE_PANEL_Y + 1));
+    expect_true("row pitch holds a glyph", GROK_VOICE_PITCH >= GROK_VOICE_GLYPH);
+    expect_true("header text fits bar", GROK_VOICE_GLYPH <= GROK_VOICE_BAR_H);
+    expect_true("footer text fits bar", GROK_VOICE_GLYPH <= GROK_VOICE_FOOTER_H);
+
+    expect_str("status listening", grok_voice_status_text(GROK_VOICE_STATUS_LISTENING), "Listening");
+    expect_str("status thinking", grok_voice_status_text(GROK_VOICE_STATUS_THINKING), "Thinking");
+    expect_str("status reply", grok_voice_status_text(GROK_VOICE_STATUS_REPLY), "Reply");
+
+    /* Every bot name in the menu plus the status word stays inside the bar. */
+    expect_true("title cols listening", grok_voice_title_cols(GROK_VOICE_STATUS_LISTENING) == 9);
+    expect_true("title cols thinking", grok_voice_title_cols(GROK_VOICE_STATUS_THINKING) == 10);
+    expect_true("title cols reply", grok_voice_title_cols(GROK_VOICE_STATUS_REPLY) == 13);
+    grok_voice_format_title(out, sizeof(out), "Carty G", grok_voice_title_cols(GROK_VOICE_STATUS_LISTENING));
+    expect_str("carty title", out, "Carty G");
+    grok_voice_format_title(out, sizeof(out), "The Chief", grok_voice_title_cols(GROK_VOICE_STATUS_LISTENING));
+    expect_str("chief title", out, "The Chief");
+    grok_voice_format_title(out, sizeof(out), "Chromatic Add-ons", grok_voice_title_cols(GROK_VOICE_STATUS_LISTENING));
+    expect_str("long title cut", out, "Chromati.");
+    expect_true("long title width", strlen(out) + 1u + strlen("Listening") <= GROK_VOICE_HEAD_COLS);
+    grok_voice_format_title(out, sizeof(out), "Awesome Coder", grok_voice_title_cols(GROK_VOICE_STATUS_REPLY));
+    expect_str("awesome reply fits", out, "Awesome Coder");
+    grok_voice_format_title(out, sizeof(out), NULL, 5);
+    expect_str("null title", out, "?");
+    grok_voice_format_title(out, sizeof(out), "", 5);
+    expect_str("empty title", out, "?");
+    grok_voice_format_title(out, sizeof(out), "abc", 0);
+    expect_str("zero cols", out, "");
+    grok_voice_format_title(out, 4, "abcdefgh", 30);
+    expect_str("small buffer", out, "ab.");
+
+    grok_voice_format_page(out, sizeof(out), 1, 4);
+    expect_str("page 2/4", out, "2/4");
+    grok_voice_format_page(out, sizeof(out), 0, 0);
+    expect_str("page 1/1 for zero pages", out, "1/1");
+    grok_voice_format_page(out, sizeof(out), 9, 3);
+    expect_str("page clamps", out, "3/3");
+    grok_voice_format_page(out, 3, 0, 12);
+    expect_str("page small buffer", out, "1/");
+
+    /* 640 characters in one word: 36 rows of 18, 4 pages, all reachable. */
+    memset(maxed, 'A', GROK_REPLY_MAX);
+    maxed[GROK_REPLY_MAX] = '\0';
+    lines = grok_text_caption_page(maxed, GROK_VOICE_COLS, 0, GROK_VOICE_ROWS, page, sizeof(page));
+    expect_true("640 lines", lines == ((GROK_REPLY_MAX + GROK_VOICE_COLS - 1) / GROK_VOICE_COLS));
+    pages = (lines + GROK_VOICE_ROWS - 1u) / GROK_VOICE_ROWS;
+    expect_true("640 pages", pages == 4);
+    all[0] = '\0';
+    for (pno = 0; pno < pages; pno++)
+    {
+        const char *nl;
+        size_t rows = 1;
+
+        grok_text_caption_page(maxed, GROK_VOICE_COLS, pno, GROK_VOICE_ROWS, page, sizeof(page));
+        for (nl = page; (nl = strchr(nl, '\n')) != NULL; nl++)
+        {
+            rows++;
+        }
+        expect_true("page rows within panel", rows <= GROK_VOICE_ROWS);
+        append_page(all, page);
+        expect_true("page step",
+                    (pno + 1u == pages) ||
+                    (grok_text_caption_step(pno, lines, GROK_VOICE_ROWS, 1) == pno + 1u));
+    }
+    expect_true("640 reachable", strcmp(all, maxed) == 0);
+    expect_true("A stops on last page",
+                grok_text_caption_step(pages - 1u, lines, GROK_VOICE_ROWS, 1) == pages - 1u);
+    expect_true("Up stops on first page", grok_text_caption_step(0, lines, GROK_VOICE_ROWS, -1) == 0);
+
+    /* No row is wider than the panel text area, and the 18-column break does
+     * not drop the word after it. */
+    lines = grok_text_caption_page("123456789012345678 NEXT", GROK_VOICE_COLS, 0, 1, page, sizeof(page));
+    expect_true("boundary lines", lines == 2);
+    expect_str("boundary first", page, "123456789012345678");
+    grok_text_caption_page("123456789012345678 NEXT", GROK_VOICE_COLS, 1, 1, page, sizeof(page));
+    expect_str("boundary second", page, "NEXT");
+    lines = grok_text_caption_page("one two three four five six seven eight nine ten eleven twelve",
+                                   GROK_VOICE_COLS, 0, GROK_VOICE_ROWS, page, sizeof(page));
+    expect_true("sentence wraps", lines >= 3);
+    for (const char *row = page; *row != '\0';)
+    {
+        const char *nl = strchr(row, '\n');
+        size_t len = (nl != NULL) ? (size_t)(nl - row) : strlen(row);
+
+        expect_true("row width", len <= GROK_VOICE_COLS);
+        row += len;
+        if (*row == '\n')
+        {
+            row++;
+        }
+    }
+}
+
 int main(void)
 {
+    test_voice_layout();
     test_parser_partial_bytes();
     test_parser_feed_line();
     test_wifi_clear_never_dispatched();

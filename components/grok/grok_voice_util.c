@@ -395,3 +395,87 @@ size_t grok_voice_format_bot_line(char *out, size_t out_cap, const char *name)
     }
     return (size_t)n;
 }
+
+const char *grok_voice_status_text(GrokVoiceStatus_t status)
+{
+    switch (status)
+    {
+    case GROK_VOICE_STATUS_LISTENING:
+        return "Listening";
+    case GROK_VOICE_STATUS_THINKING:
+        return "Thinking";
+    default:
+        return "Reply";
+    }
+}
+
+size_t grok_voice_title_cols(GrokVoiceStatus_t status)
+{
+    size_t used = strlen(grok_voice_status_text(status)) + 1u;
+
+    return (used < GROK_VOICE_HEAD_COLS) ? (GROK_VOICE_HEAD_COLS - used) : 0u;
+}
+
+size_t grok_voice_format_title(char *out, size_t out_cap, const char *name, size_t max_cols)
+{
+    size_t len;
+    size_t keep;
+
+    if ((out == NULL) || (out_cap == 0))
+    {
+        return 0;
+    }
+    if ((name == NULL) || (name[0] == '\0'))
+    {
+        name = "?";
+    }
+    len = strlen(name);
+    if (max_cols >= out_cap)
+    {
+        max_cols = out_cap - 1u;
+    }
+    if (len <= max_cols)
+    {
+        memcpy(out, name, len + 1u);
+        return len;
+    }
+    if (max_cols == 0)
+    {
+        out[0] = '\0';
+        return 0;
+    }
+    keep = max_cols - 1u;
+    memcpy(out, name, keep);
+    out[keep] = '.';
+    out[keep + 1u] = '\0';
+    return keep + 1u;
+}
+
+size_t grok_voice_format_page(char *out, size_t out_cap, size_t page, size_t pages)
+{
+    int n;
+
+    if ((out == NULL) || (out_cap == 0))
+    {
+        return 0;
+    }
+    if (pages == 0)
+    {
+        pages = 1;
+    }
+    if (page >= pages)
+    {
+        page = pages - 1u;
+    }
+    n = snprintf(out, out_cap, "%u/%u", (unsigned)(page + 1u), (unsigned)pages);
+    if (n < 0)
+    {
+        out[0] = '\0';
+        return 0;
+    }
+    if ((size_t)n >= out_cap)
+    {
+        return out_cap - 1u;
+    }
+    return (size_t)n;
+}

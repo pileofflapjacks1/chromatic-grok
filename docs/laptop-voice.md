@@ -3,7 +3,7 @@
 **UNTESTED ON HARDWARE.**
 
 Stacked on the bot-menu branch (`0.17.1-grok`). App version for this add-on:
-`0.17.1-voice.4` (keeps the 0.17.1 bot-menu baseline; `0.18.0-grok` and
+`0.17.1-voice.5` (keeps the 0.17.1 bot-menu baseline; `0.18.0-grok` and
 `0.19.0-grok` already label other stacked branches, so this stays on the
 `0.17.1-voice` line instead of bumping into those numbers).
 
@@ -86,18 +86,38 @@ A line inside an open frame is never passed to `esp_console_run`. That
 includes `wifi clear` after a 241-character line, after more than 700 bad
 lines, and a payload whose text is `VOICE_END` or `wifi clear`.
 
-## Captions
+## Captions and screen
 
-unscii_8 is an 8×8 font. The 160 px width is 20 columns. The body starts
-at y=11 and the footer is at y=135 on the 144 px screen, with a 9 px line
-pitch, so one caption page is 13 rows. A/Down moves to the next page of
-wrapped lines and stops on the last page. Up moves back and stops on the
-first. B and Start still close. Left and Right still change the bot.
+**UNTESTED ON HARDWARE.** The look below was checked only in the host preview
+(`python3 tools/voice_preview.py out.png`), which draws from the same layout
+numbers and the real unscii_8 glyph tables. It is not LVGL and not a photo.
+
+The voice screen (all three states) is a warm amber header bar. The bot name
+is on the left and the state is on the right: `Listening`, `Thinking` or
+`Reply`. The name is cut with a trailing `.` if it would touch the state word.
+The background is deep navy. Listening and Thinking show the Carty G ball in
+cream with the three dots in cyan (listening) or amber (thinking). A reply is
+cream text in a rounded, cyan-bordered panel. The footer bar shows
+`A next B exit`, the page as `2/4`, and up/down triangles that go dim when
+there is no page in that direction. A long page count drops `B exit` to keep
+the footer from overlapping.
+
+unscii_8 is an 8×8 font. The panel border and padding take room from the 20
+columns by 13 rows of the plain reply page, so one voice caption page is **18
+columns by 11 rows** (144 px by 99 px, 9 px rows). The numbers are
+`GROK_VOICE_*` in `components/grok/grok_voice_util.h` and compile-time and host
+checks make sure the text fits inside the border. The plain reply page and the
+picker are still 20×13. A/Down moves to the next page of wrapped lines and
+stops on the last page. Up moves back and stops on the first. B and Start
+still close. Left and Right still change the bot.
 
 Spaces and tabs collapse to one space between words. A newline starts a
-new row, including a blank row. A word longer than 20 characters is split
-every 20 characters. The stored reply is still at most 640 characters.
-`V 1/N` is the page, not a single clipped line.
+new row, including a blank row. A word longer than 18 characters is split
+every 18 characters. The stored reply is still at most 640 characters (a
+640-character single word is 36 rows, 4 pages).
+
+The device is sent only the reply, not the words you spoke, so there is no
+"You:" line. Showing one needs a new `VOICE_*` line from `voice_ptt.py`.
 
 ## Windows laptop install (Joe)
 
@@ -193,7 +213,7 @@ Optional: `--whisper-model tiny.en` for a smaller/faster local model.
 
 ## Flash this firmware (USB)
 
-**UNTESTED ON HARDWARE.** Caption wrapping needs `0.17.1-voice.4`.
+**UNTESTED ON HARDWARE.** The screen look and the 18×11 caption page need `0.17.1-voice.5`.
 Leave the existing `0.17.1-voice.3` draft release assets in place and
 upload this image as a new draft. From an ESP-IDF 5.3 command prompt, with the
 release files in the current folder, Chromatic on **COM4** at **115200**.
