@@ -14,8 +14,14 @@ test("foldReply keeps printable ASCII and caps the length", () => {
 
 test("grokShowLine quotes the reply for the mcu console", () => {
   const line = grokShowLine('Say "hi"\nnow');
-  assert.equal(line, 'grok show "Say \\"hi\\" now"\n');
+  assert.equal(line, "grok show \"Say 'hi' now\"\n");
   assert.ok(line.length < 1024);
+});
+
+test("grokShowLine leaves exactly two quotes so the mcu sees one argument", () => {
+  const line = grokShowLine('C:\\path "a" \\"b\\"');
+  assert.equal(line, "grok show \"C:\\path 'a' \\'b\\'\"\n");
+  assert.equal(line.split('"').length - 1, 2);
 });
 
 test("systemPrompt uses the bot voice and falls back when none is selected", () => {

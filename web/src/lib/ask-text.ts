@@ -23,9 +23,14 @@ export function foldReply(text: string, maxChars = REPLY_MAX): string {
   return `${folded.slice(0, maxChars - 3).trimEnd()}...`;
 }
 
-/** One quoted `grok show` line, same escaping as modretrochromatic.grok.me. */
+/**
+ * One quoted `grok show` line for the mcu console. The firmware's argument
+ * splitter (split_args in components/grok/grok.c) ends a quoted argument at
+ * the next `"` and has no backslash escapes, so `"` becomes `'` (the same as
+ * quote_arg in companion/chromatic_grok.py) and `\` is sent as is.
+ */
 export function grokShowLine(reply: string): string {
-  const cleaned = foldReply(reply).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+  const cleaned = foldReply(reply).replaceAll('"', "'");
   return `grok show "${cleaned}"\n`;
 }
 
