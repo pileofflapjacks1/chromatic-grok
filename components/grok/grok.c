@@ -456,7 +456,7 @@ static void wifi_usage(void)
 
 static void grok_usage(void)
 {
-    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | q list|set <n> <text>|clear <n>|ask <n> | web on|off|status | ble unpair | update [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
+    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | bots | q list|set <n> <text>|clear <n>|ask <n> | web on|off|status | ble unpair | update [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
 }
 
 static void cmd_wifi(int argc, char **argv)
@@ -674,6 +674,24 @@ static void cmd_grok(int argc, char **argv)
     {
         grok_mem_print("now");
         grok_web_mem_print();
+        return;
+    }
+    if (strcmp(argv[1], "bots") == 0)
+    {
+        /* Static on-device list. No Grok Bot API. */
+        for (int i = 0; i < GROK_BOTS_COUNT; i++)
+        {
+            const char *name = grok_bots_name(i);
+            const char *note = grok_bots_note(i);
+            char line[96];
+
+            snprintf(line, sizeof(line), "grok: bot %d %s%s\n",
+                     i + 1,
+                     (name != NULL) ? name : "?",
+                     ((note != NULL) && (note[0] != '\0')) ? " (note)" : "");
+            grok_say(line);
+        }
+        grok_ui_open_bots();
         return;
     }
     if (strcmp(argv[1], "web") == 0)
@@ -977,7 +995,7 @@ static void register_commands(void)
     };
     const esp_console_cmd_t grok_cmd = {
         .command = "grok",
-        .help = "Grok link: status, ask, q, show, url, token, mode, key, mem, web, update, page, open, close, retry, sleep",
+        .help = "Grok link: status, ask, bots, q, show, url, token, mode, key, mem, web, update, page, open, close, retry, sleep",
         .hint = NULL,
         .func = &cmd_entry,
     };

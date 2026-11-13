@@ -4,12 +4,16 @@
  */
 #include "grok_internal.h"
 
+#include "grok_bots.h"
+#include "grok_loader.h"
+
 #include "button.h"
 #include "color.h"
 #include "osd.h"
 #include "osd_default.h"
 #include "osd_shared.h"
 
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "lvgl.h"
@@ -33,15 +37,27 @@ enum {
     kPaneX = 77,
     kPaneY = 46,
     kPaneStep = 12,
+    kLoaderGiveUpMs = 12000,
 };
+
+typedef enum {
+    UI_REPLY = 0,
+    UI_PICKER,
+    UI_BOTS,
+    UI_NOTE,
+    UI_LOADER,
+} UiView_t;
 
 typedef struct UiState {
     char body[GROK_REPLY_MAX + 1];
     int page;
-    int pick;      /* picker selection, 0..GROK_PICK_COUNT-1 */
-    bool picker;   /* true: question picker, false: reply pages */
+    int pick;      /* question picker selection */
+    int bot;       /* bot menu selection */
+    UiView_t view;
     bool open;
     bool dirty;
+    uint32_t loader_start_ms;
+    int loader_frame;
 } UiState_t;
 
 static SemaphoreHandle_t s_lock;
@@ -50,6 +66,7 @@ static lv_obj_t *s_panel;
 static lv_obj_t *s_header;
 static lv_obj_t *s_body;
 static lv_obj_t *s_footer;
+static lv_obj_t *s_loader; /* full-screen custom-drawn art */
 static lv_obj_t *s_pane[3];
 static char s_header_shown[64];
 static char s_body_shown[kPageLines * (GROK_TEXT_COLS + 2)];
@@ -58,6 +75,8 @@ static const char *s_footer_shown;
 
 static const char kFooterReply[] = "A retry B back U/D";
 static const char kFooterPick[] = "A ask B back U/D";
+static const char kFooterBots[] = "A open B back U/D";
+static const char kFooterNote[] = "A ask B bots";
 
 static OSD_Widget_t s_widget = {
     .Name = "GrokOverlay",
@@ -78,6 +97,11 @@ static TabItem_t s_item = {
     },
 };
 
+static uint32_t now_ms(void)
+{
+    return (uint32_t)(esp_timer_get_time() / 1000);
+}
+
 static void lock(void)
 {
     if (s_lock != NULL)
@@ -91,6 +115,79 @@ static void unlock(void)
     if (s_lock != NULL)
     {
         xSemaphoreGive(s_lock);
+    }
+}
+
+/* Paint one RLE loader frame with horizontal rects — no RGB565 scratch buffer. */
+static void loader_draw_cb(lv_event_t *e)
+{
+    lv_obj_t *obj;
+    lv_draw_ctx_t *draw_ctx;
+    lv_area_t coords;
+    const GrokLoaderFrame *fr;
+    int frame;
+    size_t i;
+    size_t pix;
+    lv_draw_rect_dsc_t rect_dsc;
+
+    if (lv_event_get_code(e) != LV_EVENT_DRAW_MAIN)
+    {
+        return;
+    }
+    obj = lv_event_get_target(e);
+    draw_ctx = lv_event_get_draw_ctx(e);
+    if ((obj == NULL) || (draw_ctx == NULL))
+    {
+        return;
+    }
+    lock();
+    frame = s_ui.loader_frame;
+    unlock();
+    if ((frame < 0) || (frame >= GROK_LOADER_FRAME_COUNT))
+    {
+        frame = 0;
+    }
+    fr = &grok_loader_frames[frame];
+    lv_obj_get_coords(obj, &coords);
+    lv_draw_rect_dsc_init(&rect_dsc);
+    rect_dsc.bg_opa = LV_OPA_COVER;
+    rect_dsc.border_width = 0;
+
+    pix = 0;
+    for (i = 0; (i + 1) < fr->rle_len; i += 2)
+    {
+        uint8_t count = fr->rle[i];
+        uint8_t index = fr->rle[i + 1];
+        uint8_t left = count;
+
+        if (index >= GROK_LOADER_PALETTE_COUNT)
+        {
+            break;
+        }
+        rect_dsc.bg_color = lv_color_hex(grok_loader_palette_rgb[index]);
+        while (left > 0)
+        {
+            size_t x = pix % GROK_LOADER_WIDTH;
+            size_t y = pix / GROK_LOADER_WIDTH;
+            size_t run = GROK_LOADER_WIDTH - x;
+            lv_area_t area;
+
+            if (y >= GROK_LOADER_HEIGHT)
+            {
+                return;
+            }
+            if (run > left)
+            {
+                run = left;
+            }
+            area.x1 = coords.x1 + (lv_coord_t)x;
+            area.y1 = coords.y1 + (lv_coord_t)y;
+            area.x2 = area.x1 + (lv_coord_t)run - 1;
+            area.y2 = area.y1;
+            lv_draw_rect(draw_ctx, &rect_dsc, &area);
+            pix += run;
+            left = (uint8_t)(left - run);
+        }
     }
 }
 
@@ -109,6 +206,15 @@ static void ensure_overlay(lv_obj_t *screen)
     lv_obj_set_style_bg_opa(s_panel, LV_OPA_COVER, 0);
     lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+
+    s_loader = lv_obj_create(s_panel);
+    lv_obj_remove_style_all(s_loader);
+    lv_obj_set_pos(s_loader, 0, 0);
+    lv_obj_set_size(s_loader, GROK_LOADER_WIDTH, GROK_LOADER_HEIGHT);
+    lv_obj_set_style_bg_opa(s_loader, LV_OPA_TRANSP, 0);
+    lv_obj_clear_flag(s_loader, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(s_loader, loader_draw_cb, LV_EVENT_DRAW_MAIN, NULL);
+    lv_obj_add_flag(s_loader, LV_OBJ_FLAG_HIDDEN);
 
     s_header = lv_label_create(s_panel);
     lv_obj_add_style(s_header, OSD_GetStyleTextGrey(), 0);
@@ -163,6 +269,24 @@ static void set_header(const char *prefix, int cur, int total)
     {
         lv_label_set_text(s_header, header);
         snprintf(s_header_shown, sizeof(s_header_shown), "%s", header);
+    }
+}
+
+static void set_text_visible(bool text_on)
+{
+    if (text_on)
+    {
+        lv_obj_clear_flag(s_header, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_body, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_footer, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_loader, LV_OBJ_FLAG_HIDDEN);
+    }
+    else
+    {
+        lv_obj_add_flag(s_header, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_body, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_footer, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_loader, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -223,6 +347,43 @@ static void render_picker(int pick, char *view, size_t view_cap, char *lines, ch
     }
 }
 
+static void render_bots(int bot, char *page_text, size_t page_cap)
+{
+    size_t used = 0;
+
+    page_text[0] = '\0';
+    for (int i = 0; i < GROK_BOTS_COUNT; i++)
+    {
+        char row[GROK_TEXT_COLS + 1];
+        size_t len = grok_bots_format_row(row, sizeof(row), i, i == bot, GROK_TEXT_COLS);
+
+        if ((used + len + 2) >= page_cap)
+        {
+            break;
+        }
+        memcpy(page_text + used, row, len);
+        used += len;
+        page_text[used++] = '\n';
+        page_text[used] = '\0';
+    }
+}
+
+static void apply_body(const char *page_text)
+{
+    if (strcmp(page_text, s_body_shown) != 0)
+    {
+        lv_label_set_text(s_body, page_text);
+        snprintf(s_body_shown, sizeof(s_body_shown), "%s", page_text);
+    }
+}
+
+static void open_bots_locked(void)
+{
+    s_ui.view = UI_BOTS;
+    s_ui.open = true;
+    s_ui.dirty = true;
+}
+
 static void render(lv_obj_t *screen)
 {
     static char view[GROK_REPLY_MAX + 1];
@@ -230,13 +391,17 @@ static void render(lv_obj_t *screen)
     static char page_text[kPageLines * (GROK_TEXT_COLS + 2)];
     bool open;
     bool dirty;
-    bool picker;
+    UiView_t uiview;
     int pick;
+    int bot;
     int page;
+    int loader_frame;
+    uint32_t loader_start;
     size_t nlines;
     int pages;
     int start;
     size_t used;
+
     ensure_overlay(screen);
     if (s_panel == NULL)
     {
@@ -244,10 +409,13 @@ static void render(lv_obj_t *screen)
     }
 
     lock();
-    picker = s_ui.picker;
+    uiview = s_ui.view;
     pick = s_ui.pick;
+    bot = s_ui.bot;
     dirty = s_ui.dirty;
-    if (!picker)
+    loader_frame = s_ui.loader_frame;
+    loader_start = s_ui.loader_start_ms;
+    if (uiview == UI_REPLY)
     {
         snprintf(view, sizeof(view), "%s", s_ui.body);
     }
@@ -265,23 +433,88 @@ static void render(lv_obj_t *screen)
         return;
     }
 
-    if (picker)
+    /* Loader: always play at least one full cycle, then bots once Wi-Fi is
+     * up / there is no SSID, or after the give-up timeout. */
+    if (uiview == UI_LOADER)
+    {
+        uint32_t ms = now_ms();
+        uint32_t elapsed = ms - loader_start;
+        uint32_t cycle = grok_loader_cycle_ms();
+        int next = grok_loader_frame_at(ms, loader_start);
+        bool min_played = (elapsed >= cycle);
+        bool wifi_ready = grok_wifi_is_connected() || (!grok_wifi_has_ssid());
+        bool give_up = (elapsed >= (uint32_t)kLoaderGiveUpMs);
+        bool done = min_played && (wifi_ready || give_up);
+
+        if (done)
+        {
+            lock();
+            open_bots_locked();
+            unlock();
+            uiview = UI_BOTS;
+            dirty = true;
+        }
+        else
+        {
+            if (next != loader_frame)
+            {
+                lock();
+                s_ui.loader_frame = next;
+                unlock();
+                loader_frame = next;
+                lv_obj_invalidate(s_loader);
+            }
+            set_text_visible(false);
+            lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_move_foreground(s_panel);
+            return;
+        }
+    }
+
+    set_text_visible(true);
+
+    if (uiview == UI_BOTS)
+    {
+        set_header("BOT ", bot + 1, GROK_BOTS_COUNT);
+        set_footer(kFooterBots);
+        if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))
+        {
+            render_bots(bot, page_text, sizeof(page_text));
+            apply_body(page_text);
+        }
+        lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(s_panel);
+        return;
+    }
+
+    if (uiview == UI_NOTE)
+    {
+        set_header("BOT ", bot + 1, GROK_BOTS_COUNT);
+        set_footer(kFooterNote);
+        if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))
+        {
+            grok_bots_format_note(page_text, sizeof(page_text), bot);
+            apply_body(page_text);
+        }
+        lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(s_panel);
+        return;
+    }
+
+    if (uiview == UI_PICKER)
     {
         set_header("ASK ", pick + 1, GROK_PICK_COUNT);
         set_footer(kFooterPick);
         if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))
         {
             render_picker(pick, view, sizeof(view), &lines[0][0], page_text, sizeof(page_text));
-            if (strcmp(page_text, s_body_shown) != 0)
-            {
-                lv_label_set_text(s_body, page_text);
-                snprintf(s_body_shown, sizeof(s_body_shown), "%s", page_text);
-            }
+            apply_body(page_text);
         }
         lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
         lv_obj_move_foreground(s_panel);
         return;
     }
+
     set_footer(kFooterReply);
 
     nlines = grok_text_wrap(view, &lines[0][0], GROK_TEXT_COLS + 1, GROK_TEXT_LINES, GROK_TEXT_COLS);
@@ -337,11 +570,7 @@ static void render(lv_obj_t *screen)
         used += len;
         page_text[used] = '\0';
     }
-    if (strcmp(page_text, s_body_shown) != 0)
-    {
-        lv_label_set_text(s_body, page_text);
-        snprintf(s_body_shown, sizeof(s_body_shown), "%s", page_text);
-    }
+    apply_body(page_text);
 
     lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(s_panel);
@@ -405,13 +634,19 @@ static OSD_Result_t item_draw(void *arg)
     return kOSD_Result_Ok;
 }
 
+static void enter_menu(void)
+{
+    /* Always show the loader for at least one full animation cycle. */
+    grok_ui_open_loader();
+}
+
 static OSD_Result_t item_button(const Button_t Button, const ButtonState_t State, void *arg)
 {
     (void)arg;
 
     if ((Button == kButton_A) && (State == kButtonState_Pressed))
     {
-        grok_ui_open_picker();
+        enter_menu();
     }
     return kOSD_Result_Ok;
 }
@@ -434,6 +669,8 @@ static OSD_Result_t item_transition(void *arg)
 
 static bool on_inputs(void)
 {
+    UiView_t uiview;
+
     if (!OSD_IsVisible())
     {
         return false;
@@ -443,13 +680,13 @@ static bool on_inputs(void)
     {
         if (Button_GetState(kButton_Start) == kButtonState_Pressed)
         {
-            grok_ui_open_picker();
+            enter_menu();
         }
         return false;
     }
 
     lock();
-    bool picker = s_ui.picker;
+    uiview = s_ui.view;
     unlock();
 
     for (int i = 0; i < kNumButtons; i++)
@@ -461,9 +698,61 @@ static bool on_inputs(void)
         {
             continue;
         }
-        if (picker)
+        if (uiview == UI_LOADER)
         {
-            /* Up/Down pick, A asks, B (or Start) goes back to the menu. */
+            if ((button == kButton_B) || (button == kButton_Start))
+            {
+                grok_ui_close();
+                return true;
+            }
+            if (button == kButton_A)
+            {
+                grok_ui_open_bots();
+                return true;
+            }
+            continue;
+        }
+        if (uiview == UI_BOTS)
+        {
+            if ((button == kButton_Up) || (button == kButton_Down))
+            {
+                lock();
+                s_ui.bot = grok_bots_step(s_ui.bot, (button == kButton_Up) ? -1 : 1);
+                s_ui.dirty = true;
+                unlock();
+            }
+            else if (button == kButton_A)
+            {
+                lock();
+                s_ui.view = UI_NOTE;
+                s_ui.dirty = true;
+                unlock();
+                return true;
+            }
+            else if ((button == kButton_B) || (button == kButton_Start))
+            {
+                grok_ui_close();
+                return true;
+            }
+            continue;
+        }
+        if (uiview == UI_NOTE)
+        {
+            if (button == kButton_A)
+            {
+                grok_ui_open_picker();
+                return true;
+            }
+            if ((button == kButton_B) || (button == kButton_Start))
+            {
+                grok_ui_open_bots();
+                return true;
+            }
+            continue;
+        }
+        if (uiview == UI_PICKER)
+        {
+            /* Up/Down pick, A asks, B goes back to the bot note. */
             if ((button == kButton_Up) || (button == kButton_Down))
             {
                 lock();
@@ -483,7 +772,16 @@ static bool on_inputs(void)
                 grok_submit_prompt(text); /* shows "..." on the reply view */
                 return true;
             }
-            else if ((button == kButton_B) || (button == kButton_Start))
+            else if (button == kButton_B)
+            {
+                lock();
+                s_ui.view = UI_NOTE;
+                s_ui.open = true;
+                s_ui.dirty = true;
+                unlock();
+                return true;
+            }
+            else if (button == kButton_Start)
             {
                 grok_ui_close();
                 return true;
@@ -504,7 +802,11 @@ static bool on_inputs(void)
         }
         else if (button == kButton_B)
         {
-            grok_ui_open_picker(); /* back to the questions */
+            lock();
+            s_ui.view = UI_NOTE;
+            s_ui.open = true;
+            s_ui.dirty = true;
+            unlock();
             return true;
         }
         else if (button == kButton_Start)
@@ -543,7 +845,7 @@ void grok_ui_open(void)
         snprintf(s_ui.body, sizeof(s_ui.body), "No reply yet.");
         s_ui.page = 0;
     }
-    s_ui.picker = false;
+    s_ui.view = UI_REPLY;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
@@ -552,9 +854,27 @@ void grok_ui_open(void)
 void grok_ui_open_picker(void)
 {
     lock();
-    s_ui.picker = true;
+    s_ui.view = UI_PICKER;
     s_ui.open = true;
     s_ui.dirty = true;
+    unlock();
+}
+
+void grok_ui_open_bots(void)
+{
+    lock();
+    open_bots_locked();
+    unlock();
+}
+
+void grok_ui_open_loader(void)
+{
+    lock();
+    s_ui.view = UI_LOADER;
+    s_ui.open = true;
+    s_ui.dirty = true;
+    s_ui.loader_start_ms = now_ms();
+    s_ui.loader_frame = 0;
     unlock();
 }
 
@@ -581,7 +901,7 @@ void grok_ui_set_body(const char *text)
     snprintf(s_ui.body, sizeof(s_ui.body), "%s", (text != NULL) ? text : "");
     grok_text_fold_ascii(s_ui.body);
     s_ui.page = 0;
-    s_ui.picker = false;
+    s_ui.view = UI_REPLY;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
@@ -591,7 +911,7 @@ void grok_ui_page(int delta)
 {
     lock();
     s_ui.page += delta;
-    s_ui.picker = false;
+    s_ui.view = UI_REPLY;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
@@ -605,7 +925,7 @@ void grok_ui_set_page(int page)
         page = 0;
     }
     s_ui.page = page;
-    s_ui.picker = false;
+    s_ui.view = UI_REPLY;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();

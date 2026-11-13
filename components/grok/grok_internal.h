@@ -4,6 +4,7 @@
 #pragma once
 
 #include "grok_pick.h"
+#include "grok_bots.h"
 #include "grok_text.h"
 
 #include <stddef.h>
@@ -94,6 +95,10 @@ void grok_ui_page(int delta);
 void grok_ui_set_page(int page);
 /* Show the preset question picker. */
 void grok_ui_open_picker(void);
+/* Show the static bot/team menu. */
+void grok_ui_open_bots(void);
+/* Show the connecting loader (Carty G frames); always at least one cycle. */
+void grok_ui_open_loader(void);
 
 /* Phone typing page (grok_web.c), port 80, off by default. kick starts the
  * server when enabled, Wi-Fi has an IP and (direct mode) BLE is released;
