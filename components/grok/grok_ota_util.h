@@ -30,6 +30,12 @@ const char *grok_ota_head_reason(GrokOtaHead_t r);
 /* https:// only, printable, no spaces, fits in cap-1 chars. */
 bool grok_ota_url_ok(const char *url, size_t cap);
 
+/* True only when both strings start with a dotted number ("0.16.1-grok",
+ * up to 4 parts, missing parts count as 0) and candidate is lower than
+ * running. Anything after the number is ignored. A version that does not
+ * parse is never "older". */
+bool grok_ota_version_older(const char *candidate, const char *running);
+
 /* HTTP status codes esp_http_client must follow by hand. */
 bool grok_ota_is_redirect(int status);
 

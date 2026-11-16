@@ -79,6 +79,30 @@ static void test_url(void)
     CHECK(!grok_ota_url_ok(longurl, 201));
 }
 
+static void test_version(void)
+{
+    CHECK(grok_ota_version_older("0.16.0-grok", "0.16.1-grok"));
+    CHECK(grok_ota_version_older("0.15.9-grok", "0.16.0-grok"));
+    CHECK(grok_ota_version_older("0.9.0-grok", "0.10.0-grok"));
+    CHECK(grok_ota_version_older("0.16", "0.16.1"));
+    CHECK(grok_ota_version_older("0.16.1", "1"));
+    /* same version (reinstall) and newer are not older */
+    CHECK(!grok_ota_version_older("0.16.1-grok", "0.16.1-grok"));
+    CHECK(!grok_ota_version_older("0.16.1-other", "0.16.1-grok"));
+    CHECK(!grok_ota_version_older("0.16.2-grok", "0.16.1-grok"));
+    CHECK(!grok_ota_version_older("0.16.1.1", "0.16.1"));
+    CHECK(!grok_ota_version_older("1.0.0", "0.99.99"));
+    /* a version that does not parse is never called older */
+    CHECK(!grok_ota_version_older("v0.1", "0.16.1-grok"));
+    CHECK(!grok_ota_version_older("", "0.16.1-grok"));
+    CHECK(!grok_ota_version_older(NULL, "0.16.1-grok"));
+    CHECK(!grok_ota_version_older("0.1", "dev-build"));
+    CHECK(!grok_ota_version_older("0.1", NULL));
+    CHECK(!grok_ota_version_older("12345678.0", "99999999.0"));
+    /* a trailing dot is a suffix, not an empty part */
+    CHECK(grok_ota_version_older("0.16.", "0.16.1"));
+}
+
 static void test_redirect(void)
 {
     CHECK(grok_ota_is_redirect(301));
@@ -109,6 +133,7 @@ int main(void)
 {
     test_head();
     test_url();
+    test_version();
     test_redirect();
     test_boot();
     if (s_fail)

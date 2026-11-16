@@ -144,6 +144,27 @@ static int secret(const char *typed)
     return grok_text_secret_at(typed, strlen(typed));
 }
 
+static void test_model(void)
+{
+    char longname[GROK_MODEL_MAX + 2];
+
+    expect_true("model 1", grok_text_model_ok(GROK_MODEL_DEFAULT));
+    expect_true("model 2", grok_text_model_ok("grok-4-fast-reasoning"));
+    expect_true("model 3", grok_text_model_ok("grok_5.1:beta"));
+    expect_true("model 4", !grok_text_model_ok(""));
+    expect_true("model 5", !grok_text_model_ok(NULL));
+    expect_true("model 6", !grok_text_model_ok("grok 4"));
+    expect_true("model 7", !grok_text_model_ok("grok\"4"));
+    expect_true("model 8", !grok_text_model_ok("grok\\4"));
+    expect_true("model 9", !grok_text_model_ok("grok/4"));
+    memset(longname, 'a', sizeof(longname));
+    longname[GROK_MODEL_MAX] = '\0';
+    expect_true("model 10", grok_text_model_ok(longname));
+    longname[GROK_MODEL_MAX] = 'a';
+    longname[GROK_MODEL_MAX + 1] = '\0';
+    expect_true("model 11", !grok_text_model_ok(longname));
+}
+
 static void test_secret(void)
 {
     expect_true("key prefix", !secret("grok key set"));
@@ -220,6 +241,7 @@ int main(void)
     test_json();
     test_fold();
     test_responses();
+    test_model();
     test_secret();
     test_pick();
     if (g_failed != 0)

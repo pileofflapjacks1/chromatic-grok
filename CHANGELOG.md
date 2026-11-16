@@ -1,3 +1,18 @@
+## 0.16.2-grok (draft, unreleased)
+
+Not yet tested on hardware.
+
+### Added
+- `grok model`, `grok model set <name>`, `grok model clear`: the xAI model for direct mode is stored in NVS (`grokcfg/model`) and read for each ask. Default is still `grok-4.7`. Proxy mode is unchanged (`XAI_MODEL`).
+- `grok update force [url]`.
+- Host tests for the version compare and the model-name check.
+
+### Changed
+- `grok update` refuses an image whose version number is lower than the running one, before anything is written to flash. `grok update force` allows it. Same-version reinstalls are still accepted.
+- Phone page: a `POST /ask` body is read into a buffer allocated for that request, outside the page lock, so a stalled client no longer blocks the radio task from handing over an answer for up to the 5 s receive timeout. The page's long-lived buffer is 769 bytes smaller; each POST needs up to 769 bytes of heap while it is handled and answers 503 if that is not available.
+- Direct mode prints the model name in the `https:` line.
+- App version `0.16.2-grok`. Partition table, bootloader and signing key unchanged.
+
 ## 0.16.1-grok (draft, unreleased)
 
 ### Changed

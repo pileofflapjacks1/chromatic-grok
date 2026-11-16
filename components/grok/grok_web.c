@@ -11,8 +11,9 @@
  * page for 60 s. Plain HTTP: the PIN and question cross the LAN unencrypted.
  * The xAI key and proxy token are never sent to the phone.
  *
- * RAM: the server (task stack, sockets, scratch) and the request/answer
- * buffers are allocated only while the server runs. In direct mode it starts
+ * RAM: the server (task stack, sockets, scratch) and the question/answer
+ * buffers are allocated only while the server runs. A POST body (at most
+ * 768 bytes) is read into a buffer that lives for that one request. In direct mode it starts
  * only after BLE has released its RAM, and the radio task pauses it (stops
  * the server, keeps the PIN and answer) during the TLS call and updates.
  */
@@ -43,7 +44,6 @@ typedef enum {
 
 /* Heap, only while the page is enabled and the network is up. */
 typedef struct {
-    char body[kBodyCap + 1];
     char q[GROK_PROMPT_MAX + 1];
     char answer[GROK_REPLY_MAX + 1];
 } WebBuf_t;
@@ -146,62 +146,88 @@ static esp_err_t on_ask(httpd_req_t *req)
 {
     char pin[GROK_WEB_PIN_LEN + 2];
     char msg[48];
-    const char *status;
+    const char *status = "200 OK";
+    const char *text = "Asked. Waiting for Grok...";
+    const char *refusal;
+    const size_t len = req->content_len;
     size_t got = 0;
+    char *body;
+    bool queued = false;
 
     note_stack();
-    if ((req->content_len == 0) || (req->content_len > kBodyCap))
+    if ((len == 0) || (len > kBodyCap))
     {
         return send_text(req, "413 Payload Too Large", "Question is empty or too long.");
     }
-    lock();
-    if (s_buf == NULL)
+    /* The body is read into a buffer of its own, without the lock: a slow
+     * or stalled client must not hold up grok_web_answer() (radio task) or
+     * `grok web` for the receive timeout. Freed before this returns. */
+    body = malloc(len + 1);
+    if (body == NULL)
     {
-        unlock();
-        return send_text(req, "503 Service Unavailable", "Not ready.");
+        return send_text(req, "503 Service Unavailable", "Out of memory. Try again.");
     }
-    while (got < req->content_len)
+    while (got < len)
     {
-        int n = httpd_req_recv(req, s_buf->body + got, req->content_len - got);
+        int n = httpd_req_recv(req, body + got, len - got);
 
         if (n <= 0)
         {
-            unlock();
+            memset(body, 0, len + 1);
+            free(body);
             return send_text(req, "400 Bad Request", "Request was cut off.");
         }
         got += (size_t)n;
     }
-    s_buf->body[got] = '\0';
+    body[got] = '\0';
     pin[0] = '\0';
-    grok_web_form_get(s_buf->body, got, "pin", pin, sizeof(pin));
-    status = pin_refusal(pin, msg, sizeof(msg));
-    if (status != NULL)
+    grok_web_form_get(body, got, "pin", pin, sizeof(pin));
+
+    lock();
+    if (s_buf == NULL)
     {
-        unlock();
-        return send_text(req, status, msg);
+        status = "503 Service Unavailable";
+        text = "Not ready.";
     }
-    if (!grok_web_form_get(s_buf->body, got, "q", s_buf->q, sizeof(s_buf->q)) ||
-        (grok_web_sanitize(s_buf->q) == 0))
+    else if ((refusal = pin_refusal(pin, msg, sizeof(msg))) != NULL)
     {
-        unlock();
-        return send_text(req, "400 Bad Request", "Question must be 1 to 200 characters.");
+        status = refusal;
+        text = msg;
     }
-    if (s_state == WEB_WAIT)
+    else if (!grok_web_form_get(body, got, "q", s_buf->q, sizeof(s_buf->q)) || (grok_web_sanitize(s_buf->q) == 0))
     {
-        unlock();
-        return send_text(req, "409 Conflict", "Busy with the last question.");
+        status = "400 Bad Request";
+        text = "Question must be 1 to 200 characters.";
     }
-    s_state = WEB_WAIT;
-    s_buf->answer[0] = '\0';
-    if (!grok_submit_web(s_buf->q))
+    else if (s_state == WEB_WAIT)
     {
-        s_state = WEB_IDLE;
-        unlock();
-        return send_text(req, "409 Conflict", "Busy. Try again soon.");
+        status = "409 Conflict";
+        text = "Busy with the last question.";
+    }
+    else
+    {
+        s_state = WEB_WAIT;
+        s_buf->answer[0] = '\0';
+        if (grok_submit_web(s_buf->q))
+        {
+            queued = true;
+        }
+        else
+        {
+            s_state = WEB_IDLE;
+            status = "409 Conflict";
+            text = "Busy. Try again soon.";
+        }
     }
     unlock();
-    printf("web: question queued\n");
-    return send_text(req, "200 OK", "Asked. Waiting for Grok...");
+    /* The body held the PIN. */
+    memset(body, 0, len + 1);
+    free(body);
+    if (queued)
+    {
+        printf("web: question queued\n");
+    }
+    return send_text(req, status, text);
 }
 
 static esp_err_t on_answer(httpd_req_t *req)

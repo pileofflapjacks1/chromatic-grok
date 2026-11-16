@@ -20,6 +20,7 @@
 typedef enum {
     GROK_JOB_ASK = 0,
     GROK_JOB_UPDATE,   /* prompt holds the https URL */
+    GROK_JOB_UPDATE_FORCE, /* same, and an older image is allowed */
     GROK_JOB_ROLLBACK,
 } GrokJobKind_t;
 
@@ -383,6 +384,7 @@ static bool submit_job(uint8_t kind, const char *text)
 static void cmd_update(int argc, char **argv)
 {
     const char *url = GROK_UPDATE_DEFAULT_URL;
+    bool force = false;
 
     if ((argc == 3) && (strcmp(argv[2], "status") == 0))
     {
@@ -399,13 +401,20 @@ static void cmd_update(int argc, char **argv)
         grok_update_arm_hold();
         return;
     }
+    if ((argc >= 3) && (strcmp(argv[2], "force") == 0))
+    {
+        /* grok update force [url]: allow an image older than this one. */
+        force = true;
+        argc--;
+        argv++;
+    }
     if (argc == 3)
     {
         url = argv[2];
     }
     else if (argc != 2)
     {
-        grok_say("grok update [https-url] | status | rollback | hold\n");
+        grok_say("grok update [force] [https-url] | status | rollback | hold\n");
         return;
     }
     if (!grok_ota_url_ok(url, GROK_PROMPT_MAX + 1))
@@ -414,7 +423,7 @@ static void cmd_update(int argc, char **argv)
         return;
     }
     printf("update: queued. BLE turns off until the next reboot.\n");
-    submit_job(GROK_JOB_UPDATE, url);
+    submit_job(force ? GROK_JOB_UPDATE_FORCE : GROK_JOB_UPDATE, url);
 }
 
 static void cmd_web(int argc, char **argv)
@@ -456,7 +465,7 @@ static void wifi_usage(void)
 
 static void grok_usage(void)
 {
-    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | mem | q list|set <n> <text>|clear <n>|ask <n> | web on|off|status | ble unpair | update [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
+    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | model [set <name>|clear] | mem | q list|set <n> <text>|clear <n>|ask <n> | web on|off|status | ble unpair | update [force] [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
 }
 
 static void cmd_wifi(int argc, char **argv)
@@ -628,6 +637,39 @@ static void cmd_grok(int argc, char **argv)
             memset(argv[i], 0, strlen(argv[i]));
         }
         grok_say("grok: key set <key> | key clear\n");
+        return;
+    }
+    if (strcmp(argv[1], "model") == 0)
+    {
+        /* xAI model for direct mode. The proxy picks its own (XAI_MODEL). */
+        char model[GROK_MODEL_MAX + 1];
+        char line[GROK_MODEL_MAX + 40];
+
+        if (argc == 2)
+        {
+            bool custom = grok_store_get_model(model, sizeof(model));
+
+            snprintf(line, sizeof(line), "grok: model %s%s\n", model, custom ? "" : " (default)");
+            grok_say(line);
+            return;
+        }
+        if ((argc == 4) && (strcmp(argv[2], "set") == 0))
+        {
+            if (!grok_text_model_ok(argv[3]))
+            {
+                grok_say("grok: model is 1 to 48 of letters, digits, . _ : -; not saved\n");
+                return;
+            }
+            grok_say(grok_store_set_model(argv[3]) ? "grok: model saved (direct mode)\n" : "grok: could not save model\n");
+            return;
+        }
+        if ((argc == 3) && (strcmp(argv[2], "clear") == 0))
+        {
+            grok_store_clear_model();
+            grok_say("grok: model back to " GROK_MODEL_DEFAULT "\n");
+            return;
+        }
+        grok_say("grok: model | model set <name> | model clear\n");
         return;
     }
     if (strcmp(argv[1], "mode") == 0)
@@ -903,7 +945,7 @@ static void radio_task(void *arg)
             continue;
         }
 
-        if (job.kind == GROK_JOB_UPDATE)
+        if ((job.kind == GROK_JOB_UPDATE) || (job.kind == GROK_JOB_UPDATE_FORCE))
         {
             /* Same as direct mode: TLS needs the BLE controller's RAM. */
             if (!grok_ble_released() && !grok_ble_stop())
@@ -912,7 +954,7 @@ static void radio_task(void *arg)
                 continue;
             }
             grok_web_pause();
-            grok_update_run(job.prompt);
+            grok_update_run(job.prompt, job.kind == GROK_JOB_UPDATE_FORCE);
             grok_web_resume();
             continue;
         }

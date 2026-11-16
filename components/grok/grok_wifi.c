@@ -301,6 +301,59 @@ bool grok_store_has_xai_key(void)
     return (err == ESP_OK) && (len > 1);
 }
 
+bool grok_store_set_model(const char *name)
+{
+    esp_err_t a;
+    esp_err_t b;
+
+    if (!grok_text_model_ok(name) || !store_open())
+    {
+        return false;
+    }
+    lock();
+    a = nvs_set_str(s_nvs, "model", name);
+    b = nvs_commit(s_nvs);
+    unlock();
+    return (a == ESP_OK) && (b == ESP_OK);
+}
+
+void grok_store_clear_model(void)
+{
+    if (!store_open())
+    {
+        return;
+    }
+    lock();
+    nvs_erase_key(s_nvs, "model");
+    nvs_commit(s_nvs);
+    unlock();
+}
+
+bool grok_store_get_model(char *out, size_t out_cap)
+{
+    size_t len = out_cap;
+    esp_err_t err = ESP_FAIL;
+
+    if ((out == NULL) || (out_cap == 0))
+    {
+        return false;
+    }
+    out[0] = '\0';
+    if (store_open())
+    {
+        lock();
+        err = nvs_get_str(s_nvs, "model", out, &len);
+        unlock();
+    }
+    /* Missing, too long for the buffer, or not a valid name: use the default. */
+    if ((err != ESP_OK) || !grok_text_model_ok(out))
+    {
+        snprintf(out, out_cap, "%s", GROK_MODEL_DEFAULT);
+        return false;
+    }
+    return true;
+}
+
 bool grok_store_set_mode(GrokMode_t mode)
 {
     esp_err_t a;

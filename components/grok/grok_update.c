@@ -406,7 +406,7 @@ static esp_err_t open_follow(esp_http_client_handle_t client, int64_t *len, int 
 }
 
 /* Runs on the grok radio task (16 KB stack), BLE already released. */
-bool grok_update_run(const char *url)
+bool grok_update_run(const char *url, bool force)
 {
     const esp_partition_t *running = esp_ota_get_running_partition();
     const esp_partition_t *target = esp_ota_get_next_update_partition(NULL);
@@ -508,6 +508,20 @@ bool grok_update_run(const char *url)
                 goto done;
             }
             printf("update: image version %s, %" PRId64 " B\n", version, len);
+            /* The version is read before the signature is checked, but it is
+             * part of the signed image: esp_ota_end() below still has to
+             * pass. This stops an old, validly signed release from being
+             * installed by accident or by whoever controls the URL. */
+            if (grok_ota_version_older(version, esp_app_get_description()->version))
+            {
+                if (!force)
+                {
+                    snprintf(last, sizeof(last), "%.16s is older than %.16s. grok update force", version,
+                             esp_app_get_description()->version);
+                    goto done;
+                }
+                printf("update: older than the running %s; forced\n", esp_app_get_description()->version);
+            }
             /* Sequential erase: one 4 KB sector at a time as data arrives,
              * not the whole 1.9 MB slot up front. */
             err = esp_ota_begin(target, OTA_WITH_SEQUENTIAL_WRITES, &ota);

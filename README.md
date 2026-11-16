@@ -10,7 +10,7 @@ This is a modified version of the ModRetro Chromatic MCU firmware, distributed u
 
 The Chromatic MCU is an ESP32-U4WDH with 4 MB of flash and no PSRAM. The screen is 160×144. The ESP32 is not on USB directly. The FPGA's composite USB device includes a CDC serial port (USB VID:PID `0x374E:0x0101`, "Chromatic - Player 01") that is bridged to ESP32 UART0, and that port is used for flashing and the `mcu>` console. GPIO9 and GPIO10 are the FPGA UART, so the flash stays in DIO mode.
 
-App version: `0.16.1-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
+App version: `0.16.2-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
 
 Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are not in this firmware.
 
@@ -320,6 +320,16 @@ grok mem
 grok ask "hello"
 ```
 
+The model name is stored on the device, so a retired model does not need a new firmware:
+
+```text
+grok model                     (shows the name in use)
+grok model set <name>          (NVS grokcfg/model; 1 to 48 of letters, digits, . _ : -)
+grok model clear               (back to the built-in grok-4.7)
+```
+
+This applies to direct mode only; the proxy uses `XAI_MODEL`. The name is not checked against xAI until the next ask.
+
 `grok mode proxy` and a reboot bring BLE back. `grok key clear` erases the key. The key is stored **unencrypted** in NVS (`grokcfg/xaikey`); anyone with the device and esptool can read it. Use a low-limit key you can revoke.
 
 ### Phone typing (`grok web`)
@@ -332,7 +342,7 @@ grok web status    (http://<ip> and the 6-digit PIN)
 grok web off
 ```
 
-At every start the Chromatic makes a new random 6-digit PIN and shows it with its address on the Grok screen (`grok web status` prints it too). On a phone on the same Wi-Fi, open `http://<ip>`, type the PIN and a question (1 to 200 characters, sent as printable ASCII), press Send. The page polls until the answer arrives. The question goes on the same queue as `grok ask`, so direct and proxy mode behave as usual (direct mode still stops BLE). One question at a time; a second one gets "busy" (409). 5 wrong PINs lock the page for 60 s.
+At every start the Chromatic makes a new random 6-digit PIN and shows it with its address on the Grok screen (`grok web status` prints it too). On a phone on the same Wi-Fi, open `http://<ip>`, type the PIN and a question (1 to 200 characters, sent as printable ASCII), press Send. The page polls until the answer arrives. The question goes on the same queue as `grok ask`, so direct and proxy mode behave as usual (direct mode still stops BLE). One question at a time; a second one gets "busy" (409). 5 wrong PINs lock the page for 60 s. The lockout is shared by everyone, so another device on the LAN that keeps sending wrong PINs can keep the page locked.
 
 - **Plain HTTP.** The PIN, the question and the answer cross your LAN unencrypted. Use it only on a network you trust. The xAI key and proxy token are never sent to the phone.
 - Port 80, at most 2 open connections. The server and its buffers (about 8 KB of heap) exist only while it runs.
@@ -344,6 +354,7 @@ At every start the Chromatic makes a new random 6-digit PIN and shows it with it
 ```text
 grok update                    (latest GitHub release asset chromatic_grok.signed.bin)
 grok update https://...        (any https URL, at most 200 characters)
+grok update force [https://...] (also accept an image older than the running one)
 grok update status             (running slot, version, other slot, PENDING/VALID, last result, key id)
 grok update rollback           (boot the other slot now, if it holds a valid image)
 grok update hold               (test hook: the next update will not confirm and rolls back)
@@ -354,6 +365,8 @@ The default URL is
 so a release needs an asset named exactly **`chromatic_grok.signed.bin`**. "Latest" skips pre-releases.
 
 What happens: BLE stops (as in direct mode; it comes back after the reboot), the image streams over TLS (CA bundle; GitHub's redirect to release-assets.githubusercontent.com is followed) into the inactive slot in 2 KB pieces, erasing one sector at a time. The first bytes must be a `chromatic_grok` app image. `esp_ota_end()` then checks the image hash and its ECDSA P-256 signature against the public key built into the running firmware. Only if that passes is the boot slot switched and the chip restarted. A rejected or broken download leaves the running firmware and the boot slot alone.
+
+**No silent downgrade.** An image whose version number is lower than the running one (`0.16.1-grok` against `0.16.2-grok`; the text after the number is ignored) is refused before anything is written, because an old release keeps its valid signature forever. `grok update force [url]` installs it anyway. The same version (a reinstall) and a version that does not start with a number are accepted. This is a guard on the console command, not anti-rollback: `grok update rollback` and a USB flash still go to any version.
 
 **Signature scheme.** ESP-IDF "signed apps without hardware secure boot" (`CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT`, ECDSA scheme, `CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT`), with build-time signing off and only the public key (`CONFIG_SECURE_BOOT_VERIFICATION_KEY`, raw 64 bytes) in the build. Checked in the ESP-IDF v5.3.1 source: the app side compiles only `secure_boot_v1/secure_boot_signatures_app.c` (mbedTLS ECDSA over the embedded key, no eFuse access); the eFuse-burning `secure_boot.c` is bootloader-only and only with hardware secure boot enabled; `SECURE_SIGNED_ON_BOOT` is off, so nothing about the bootloader changes and the device's bootloader is never reflashed. A USB flash needs no signature.
 

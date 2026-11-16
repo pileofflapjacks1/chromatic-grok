@@ -651,3 +651,25 @@ bool grok_text_secret_at(const char *buf, size_t pos)
     }
     return false;
 }
+
+bool grok_text_model_ok(const char *name)
+{
+    size_t n = 0;
+
+    if (name == NULL)
+    {
+        return false;
+    }
+    for (; name[n] != '\0'; n++)
+    {
+        char c = name[n];
+        bool ok = ((c >= 'a') && (c <= 'z')) || ((c >= 'A') && (c <= 'Z')) || ((c >= '0') && (c <= '9')) ||
+                  (c == '.') || (c == '_') || (c == ':') || (c == '-');
+
+        if (!ok || (n >= GROK_MODEL_MAX))
+        {
+            return false;
+        }
+    }
+    return n > 0;
+}

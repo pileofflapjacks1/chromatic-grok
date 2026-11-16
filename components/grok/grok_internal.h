@@ -51,6 +51,12 @@ bool grok_store_get_xai_key(char *out, size_t out_cap);
 bool grok_store_has_xai_key(void);
 bool grok_store_set_mode(GrokMode_t mode);
 GrokMode_t grok_store_get_mode(void);
+/* Direct-mode model name, NVS grokcfg/model. get copies the stored name,
+ * or GROK_MODEL_DEFAULT when none is stored, and returns true for a stored
+ * one. Not cached in RAM. */
+bool grok_store_set_model(const char *name);
+void grok_store_clear_model(void);
+bool grok_store_get_model(char *out, size_t out_cap);
 /* Phone page on/off, NVS grokcfg/web. Default off. */
 bool grok_store_set_web(bool on);
 bool grok_store_get_web(void);
@@ -115,7 +121,8 @@ bool grok_console_running(void);
  * task; they restart the chip on success. */
 #define GROK_UPDATE_DEFAULT_URL \
     "https://github.com/pileofflapjacks1/chromatic-grok/releases/latest/download/chromatic_grok.signed.bin"
-bool grok_update_run(const char *url);
+/* An image older than the running one is refused unless force is set. */
+bool grok_update_run(const char *url, bool force);
 bool grok_update_rollback_now(void);
 void grok_update_status(void);
 void grok_update_arm_hold(void);

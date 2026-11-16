@@ -93,6 +93,67 @@ bool grok_ota_url_ok(const char *url, size_t cap)
     return true;
 }
 
+#define GROK_OTA_VER_PARTS 4
+
+static bool parse_version(const char *text, uint32_t parts[GROK_OTA_VER_PARTS])
+{
+    size_t i = 0;
+
+    for (int p = 0; p < GROK_OTA_VER_PARTS; p++)
+    {
+        parts[p] = 0;
+    }
+    if ((text == NULL) || (text[0] < '0') || (text[0] > '9'))
+    {
+        return false;
+    }
+    for (int p = 0; p < GROK_OTA_VER_PARTS; p++)
+    {
+        uint32_t v = 0;
+        int digits = 0;
+
+        while ((text[i] >= '0') && (text[i] <= '9'))
+        {
+            if (++digits > 6)
+            {
+                return false;
+            }
+            v = (v * 10u) + (uint32_t)(text[i] - '0');
+            i++;
+        }
+        if (digits == 0)
+        {
+            return false;
+        }
+        parts[p] = v;
+        if ((text[i] != '.') || (text[i + 1] < '0') || (text[i + 1] > '9'))
+        {
+            break;
+        }
+        i++;
+    }
+    return true;
+}
+
+bool grok_ota_version_older(const char *candidate, const char *running)
+{
+    uint32_t a[GROK_OTA_VER_PARTS];
+    uint32_t b[GROK_OTA_VER_PARTS];
+
+    if (!parse_version(candidate, a) || !parse_version(running, b))
+    {
+        return false;
+    }
+    for (int p = 0; p < GROK_OTA_VER_PARTS; p++)
+    {
+        if (a[p] != b[p])
+        {
+            return a[p] < b[p];
+        }
+    }
+    return false;
+}
+
 bool grok_ota_is_redirect(int status)
 {
     return (status == 301) || (status == 302) || (status == 303) || (status == 307) || (status == 308);

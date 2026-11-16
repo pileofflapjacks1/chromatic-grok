@@ -28,7 +28,6 @@
 #include <string.h>
 
 #define XAI_URL "https://api.x.ai/v1/responses"
-#define XAI_MODEL "grok-4.7"
 #define XAI_MAX_OUTPUT_TOKENS 180
 
 /* Same system prompt as companion/proxy.py. */
@@ -69,7 +68,7 @@ void grok_mem_print(const char *label)
     fflush(stdout);
 }
 
-static bool build_body(char *body, size_t cap, const char *prompt)
+static bool build_body(char *body, size_t cap, const char *model, const char *prompt)
 {
     size_t used;
     size_t escaped = 0;
@@ -78,7 +77,7 @@ static bool build_body(char *body, size_t cap, const char *prompt)
     n = snprintf(body, cap,
                  "{\"model\":\"%s\",\"input\":[{\"role\":\"system\",\"content\":\"%s\"},"
                  "{\"role\":\"user\",\"content\":\"",
-                 XAI_MODEL, kSystem);
+                 model, kSystem);
     if ((n <= 0) || ((size_t)n >= cap))
     {
         return false;
@@ -99,6 +98,7 @@ bool grok_https_ask(const char *key, const char *prompt, char *reply, size_t rep
     char *raw = NULL;
     char *auth = NULL;
     char parsed[GROK_REPLY_MAX + 1];
+    char model[GROK_MODEL_MAX + 1];
     esp_http_client_handle_t client = NULL;
     esp_http_client_config_t cfg = {
         .url = XAI_URL,
@@ -149,7 +149,8 @@ bool grok_https_ask(const char *key, const char *prompt, char *reply, size_t rep
     }
     raw[0] = '\0';
 
-    if (!build_body(body, kBodyCap, prompt))
+    grok_store_get_model(model, sizeof(model));
+    if (!build_body(body, kBodyCap, model, prompt))
     {
         snprintf(reply, reply_cap, "prompt too long");
         goto done;
@@ -232,7 +233,7 @@ bool grok_https_ask(const char *key, const char *prompt, char *reply, size_t rep
         }
     }
     raw[raw_len] = '\0';
-    printf("https: status %d, %u bytes%s\n", status, (unsigned)(raw_len + dropped),
+    printf("https: model %s, status %d, %u bytes%s\n", model, status, (unsigned)(raw_len + dropped),
            (dropped > 0) ? " (truncated)" : "");
     grok_mem_print("after reply");
 

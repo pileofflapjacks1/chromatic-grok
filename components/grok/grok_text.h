@@ -12,6 +12,14 @@
 #define GROK_REPLY_MAX 640
 #define GROK_PROMPT_MAX 200
 
+/* xAI model for direct mode when none is stored (grok model set). */
+#define GROK_MODEL_DEFAULT "grok-4.7"
+#define GROK_MODEL_MAX 48
+
+/* A model name is 1..GROK_MODEL_MAX of [A-Za-z0-9._:-], so it can go into
+ * the request JSON as is. */
+bool grok_text_model_ok(const char *name);
+
 /* Map the string onto printable ASCII in place. Newlines stay. */
 void grok_text_fold_ascii(char *text);
 
