@@ -7,6 +7,13 @@
 ### Added
 - `tests/test_grok_text.c`: every short label fits the row and every preset keeps its full question.
 
+### Fixed
+- `companion/proxy.py`: a 10 s socket timeout drops clients that connect and send nothing; a non-numeric `Content-Length` answers 400 instead of raising.
+
+### Repository
+- `companion/__pycache__` is no longer tracked. `tests/run_host.sh` builds in a temporary directory with `-Werror` for every test and writes no bytecode.
+- GitHub Actions workflow for the host checks and the `web/` tests, typecheck and build. It does not build the firmware.
+
 ## 0.16.0-grok (draft, unreleased)
 
 ### Added

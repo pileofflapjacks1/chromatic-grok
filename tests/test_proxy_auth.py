@@ -2,6 +2,7 @@
 
 import json
 import os
+import socket
 import sys
 import threading
 import urllib.error
@@ -97,6 +98,42 @@ def test_http_401_and_no_key_leak():
     finally:
         httpd.shutdown()
         proxy.ask_xai = real
+
+
+def _raw(port, data, wait=5):
+    """Send raw bytes, return everything the server sends before it closes."""
+    with socket.create_connection(("127.0.0.1", port), timeout=wait) as sock:
+        if data:
+            sock.sendall(data)
+        chunks = []
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    return b"".join(chunks).decode("utf-8", "replace")
+
+
+def test_bad_length_and_stalled_client():
+    os.environ["GROK_PROXY_TOKEN"] = TOKEN
+    real_timeout = proxy.AskHandler.timeout
+    assert real_timeout and real_timeout <= 30
+    proxy.AskHandler.timeout = 0.5
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), proxy.AskHandler)
+    port = httpd.server_address[1]
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    head = "POST /v1/ask HTTP/1.0\r\nAuthorization: Bearer %s\r\n" % TOKEN
+    try:
+        out = _raw(port, (head + "Content-Length: abc\r\n\r\n").encode())
+        assert out.startswith("HTTP/1.0 400"), out
+        # Promises a body and never sends it: dropped, no reply.
+        assert _raw(port, (head + "Content-Length: 50\r\n\r\n").encode()) == ""
+        # Connects and sends nothing at all: dropped too.
+        assert _raw(port, b"") == ""
+    finally:
+        httpd.shutdown()
+        proxy.AskHandler.timeout = real_timeout
 
 
 if __name__ == "__main__":

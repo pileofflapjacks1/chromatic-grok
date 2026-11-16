@@ -4,6 +4,8 @@ sdkconfig
 sdkconfig.old
 .env
 companion/.env
+__pycache__/
+*.pyc
 web/node_modules/
 web/dist/
 web/.output/

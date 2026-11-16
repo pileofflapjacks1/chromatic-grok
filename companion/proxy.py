@@ -199,6 +199,9 @@ def ask_xai(prompt, max_chars=DEFAULT_CHARS, timeout=18):
 
 class AskHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
+    # Socket timeout in seconds. A client that connects and then sends nothing
+    # (or stalls mid-body) is dropped instead of holding a thread forever.
+    timeout = 10
 
     def do_GET(self):
         path = self.path.split("?", 1)[0]
@@ -215,11 +218,20 @@ class AskHandler(BaseHTTPRequestHandler):
         if not check_auth(self.headers.get("Authorization")):
             self._send(401, {"error": "unauthorized"})
             return
-        length = int(self.headers.get("Content-Length", "0") or "0")
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except ValueError:
+            self._send(400, {"error": "bad content-length"})
+            return
         if length < 0 or length > 8192:
             self._send(400, {"error": "body too large"})
             return
-        raw = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+        try:
+            raw = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+        except OSError:
+            # Timed out or reset mid-body. Nothing useful to answer.
+            self.close_connection = True
+            return
         try:
             incoming = json.loads(raw) if raw else {}
         except json.JSONDecodeError:
