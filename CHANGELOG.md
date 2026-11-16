@@ -1,3 +1,18 @@
+## 0.17.0-grok (draft, unreleased)
+
+Not yet tested on hardware. The screens were checked by drawing `grok_ui.c` with LVGL 8.4 on a PC.
+
+### Added
+- Grok app. The menu button opens a home screen (Type a question, Quick questions, Last answer, Chromatic menu) instead of the stock menu; B or Start from home shows the stock menu. `grok app on|off` (NVS `grokcfg/app`, default on) chooses which opens first. Start while the menu is open and the System tab's GROK row now open the home screen too.
+- On-screen keyboard: D-pad moves, A presses, B deletes, Start sends; `CAP`, `SPACE`, `DEL`, `SEND` keys; up to 200 characters. Portable model in `grok_keys.c` with host tests (`tests/test_grok_keys.c`). The typed text is 201 bytes of heap only while a question is being written.
+
+### Changed
+- B on the quick-question list and on a reply goes to the home screen (was: close, and back to the list).
+- App version `0.17.0-grok`. Static DRAM is 16 bytes larger than 0.16.2; IRAM is unchanged.
+
+### Fixed
+- Reply and quick-question pages showed 12 of their 13 lines. A label line is the font's line height (9 px for `unscii_8`) plus the line space, so the 1 px line space made the pitch 10 px and the 13th line fell outside the 117 px body. The line space is now 0.
+
 ## 0.16.2-grok (draft, unreleased)
 
 Not yet tested on hardware.

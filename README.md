@@ -10,7 +10,7 @@ This is a modified version of the ModRetro Chromatic MCU firmware, distributed u
 
 The Chromatic MCU is an ESP32-U4WDH with 4 MB of flash and no PSRAM. The screen is 160×144. The ESP32 is not on USB directly. The FPGA's composite USB device includes a CDC serial port (USB VID:PID `0x374E:0x0101`, "Chromatic - Player 01") that is bridged to ESP32 UART0, and that port is used for flashing and the `mcu>` console. GPIO9 and GPIO10 are the FPGA UART, so the flash stays in DIO mode.
 
-App version: `0.16.2-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
+App version: `0.17.0-grok`. The version string shown in the system menu is `4.6g`. The FPGA does not check that string.
 
 Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are not in this firmware.
 
@@ -24,7 +24,8 @@ Shiny Relay features (link cable over Wi-Fi, cart flashing, and the rest) are no
 
 ## What you get
 
-- Stock OSD, with a GROK row on the System tab and a Start shortcut while the menu is open.
+- A Grok app on the menu button: a home screen, an on-screen keyboard for typing a question on the handheld, 8 quick questions, and the answer pages. B from the home screen shows the stock menu; `grok app off` puts the stock menu first again.
+- Stock OSD underneath, with a GROK row on the System tab and a Start shortcut while the menu is open.
 - Wi-Fi station mode. SSID and password are stored in NVS (`grokcfg`) and can be set from the serial console.
 - BLE peripheral named `ChromaticGrok`. It speaks the same line commands as the console, but only after passkey pairing (encrypted, bonded, MITM-protected).
 - `grok ask` posts the prompt to an `http://` proxy you run (the proxy holds the xAI key), or, in direct mode, calls api.x.ai over HTTPS with BLE off.
@@ -219,7 +220,7 @@ grok ask What is a Game Boy?
 
 The token is stored in NVS (`grokcfg/token`) and is never printed; `grok status` shows only `token=set` or `token=unset`. `grok token clear` removes it.
 
-The screen shows `...`, then the reply. Open the Chromatic menu and press Start, or open System → GROK and press A. Up and Down change page. A sends the last prompt again. B or Start closes the overlay.
+The screen shows `...`, then the reply. Press the menu button (the app opens on its home screen; pick **Last answer**), or with `grok app off` open the Chromatic menu and press Start, or open System → GROK and press A. Up and Down change page. A sends the last prompt again. B goes to the app's home screen and Start closes the app.
 
 The proxy calls `POST https://api.x.ai/v1/responses` with model `grok-4.7` (`XAI_MODEL` overrides it) and asks for a short plain-ASCII answer. Override the model only if you know that name is valid for your key.
 
@@ -295,9 +296,26 @@ sh tests/run_host.sh
 
 That compiles `grok_text` with the host `cc` and checks the proxy's reply parser with no network.
 
-### Preset questions on the handheld
+### The Grok app on the handheld
 
-Open the Grok screen (A on the System tab GROK row, or Start while the menu is open). It starts on a list of 8 questions. **Up/Down** picks, **A** asks, **B** goes back. On the reply, Up/Down pages, A asks again, B returns to the list, Start closes.
+The Grok app opens when you press the menu button. With `grok app off` the stock menu opens instead, and the app is behind Start or A on the System tab's GROK row.
+
+```text
+grok app           (shows the setting)
+grok app on        (default: menu button opens the Grok app; saved in NVS grokcfg/app)
+grok app off       (menu button opens the stock menu)
+```
+
+**Home.** Up/Down picks, A selects, B or Start closes the app and shows the stock Chromatic menu (brightness, palette and the rest are one press away).
+
+- **Type a question** opens the keyboard.
+- **Quick questions** is the list of 8 questions.
+- **Last answer** shows the reply pages.
+- **Chromatic menu** closes the app.
+
+**Keyboard.** The D-pad moves over four rows of keys and a bottom row of `CAP`, `SPACE`, `DEL` and `SEND`; it wraps at the edges. **A** presses the key, **B** deletes the last character (B on an empty line goes back to home), **Start** sends. `CAP` switches to capitals and a second set of symbols until pressed again. Up to 200 characters; the top of the screen shows the last four lines of what you typed and the header counts characters. The typed text uses 201 bytes of heap from the first use of the keyboard until the question is sent or you back out; if a reply or a pairing passkey takes over the screen while you type, the text is kept for the next time you open the keyboard.
+
+**Quick questions.** **Up/Down** picks, **A** asks, **B** goes home, Start closes. On the reply, Up/Down pages, A asks again, B goes home, Start closes.
 
 The 8 built-in questions are in flash. You can replace any slot; custom text is saved in NVS (`grokcfg/q1`..`q8`) and marked `*` in the list:
 

@@ -15,8 +15,12 @@ cc -std=c11 -Wall -Wextra -Werror -I components/grok \
 cc -std=c11 -Wall -Wextra -Werror -I components/grok \
     tests/test_grok_web.c components/grok/grok_web_util.c \
     -o "$out/test_grok_web"
+cc -std=c11 -Wall -Wextra -Werror -I components/grok \
+    tests/test_grok_keys.c components/grok/grok_keys.c \
+    -o "$out/test_grok_keys"
 "$out/test_grok_ota"
 "$out/test_grok_web"
+"$out/test_grok_keys"
 "$out/test_grok_text"
 python3 tests/test_proxy_extract.py
 python3 tests/test_proxy_auth.py

@@ -3,6 +3,7 @@ idf_component_register(
         "grok.c"
         "grok_text.c"
         "grok_pick.c"
+        "grok_keys.c"
         "grok_wifi.c"
         "grok_http.c"
         "grok_https.c"

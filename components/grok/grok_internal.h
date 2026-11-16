@@ -57,6 +57,9 @@ GrokMode_t grok_store_get_mode(void);
 bool grok_store_set_model(const char *name);
 void grok_store_clear_model(void);
 bool grok_store_get_model(char *out, size_t out_cap);
+/* Menu button opens the Grok app first, NVS grokcfg/app. Default on. */
+bool grok_store_set_app(bool on);
+bool grok_store_get_app(void);
 /* Phone page on/off, NVS grokcfg/web. Default off. */
 bool grok_store_set_web(bool on);
 bool grok_store_get_web(void);
@@ -100,6 +103,10 @@ void grok_ui_page(int delta);
 void grok_ui_set_page(int page);
 /* Show the preset question picker. */
 void grok_ui_open_picker(void);
+/* Show the app's home screen. */
+void grok_ui_open_home(void);
+/* Menu button opens the app first (true) or the stock menu (false). */
+void grok_ui_set_auto(bool on);
 
 /* Phone typing page (grok_web.c), port 80, off by default. kick starts the
  * server when enabled, Wi-Fi has an IP and (direct mode) BLE is released;

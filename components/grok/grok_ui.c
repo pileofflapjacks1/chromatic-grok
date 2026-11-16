@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "grok_internal.h"
+#include "grok_keys.h"
 
 #include "button.h"
 #include "color.h"
@@ -15,6 +16,7 @@
 #include "lvgl.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #if !LV_FONT_UNSCII_8
@@ -33,13 +35,47 @@ enum {
     kPaneX = 77,
     kPaneY = 46,
     kPaneStep = 12,
+    kGlyphW = 8,
+    /* Keyboard view, in body lines: the typed text, a gap, the key rows,
+     * a gap, the wide keys. */
+    kTypedLines = 4,
+    kKeyLine0 = kTypedLines + 1,
+    kWideLine = kKeyLine0 + GROK_KEYS_CHAR_ROWS + 1,
+};
+
+/* The app's screens. Reply is 0 so a zeroed state shows the reply pages. */
+typedef enum {
+    VIEW_REPLY = 0, /* answer pages */
+    VIEW_PICK,      /* preset question list */
+    VIEW_HOME,      /* app home: what to do */
+    VIEW_KEYS,      /* on-screen keyboard */
+} View_t;
+
+enum {
+    kHomeType = 0,
+    kHomeQuick,
+    kHomeLast,
+    kHomeMenu,
+    kHomeCount,
+};
+
+static const char *const kHomeItem[kHomeCount] = {
+    "Type a question",
+    "Quick questions",
+    "Last answer",
+    "Chromatic menu",
 };
 
 typedef struct UiState {
     char body[GROK_REPLY_MAX + 1];
     int page;
     int pick;      /* picker selection, 0..GROK_PICK_COUNT-1 */
-    bool picker;   /* true: question picker, false: reply pages */
+    /* Text typed on the keyboard: GROK_PROMPT_MAX + 1 bytes of heap from the
+     * first use of the keyboard until the question is sent or dropped. */
+    char *typed;
+    GrokKeys_t keys;
+    uint8_t view;  /* View_t */
+    uint8_t home;  /* home selection, 0..kHomeCount-1 */
     bool open;
     bool dirty;
 } UiState_t;
@@ -50,6 +86,10 @@ static lv_obj_t *s_panel;
 static lv_obj_t *s_header;
 static lv_obj_t *s_body;
 static lv_obj_t *s_footer;
+static lv_obj_t *s_keycur;
+/* Menu button opens the app first (grok app on|off). */
+static volatile bool s_auto;
+static bool s_was_visible;
 static lv_obj_t *s_pane[3];
 static char s_header_shown[64];
 static char s_body_shown[kPageLines * (GROK_TEXT_COLS + 2)];
@@ -58,6 +98,8 @@ static const char *s_footer_shown;
 
 static const char kFooterReply[] = "A retry B back U/D";
 static const char kFooterPick[] = "A ask B back U/D";
+static const char kFooterHome[] = "A select B menu";
+static const char kFooterKeys[] = "A key B del STA send";
 
 static OSD_Widget_t s_widget = {
     .Name = "GrokOverlay",
@@ -121,7 +163,8 @@ static void ensure_overlay(lv_obj_t *screen)
     s_body = lv_label_create(s_panel);
     lv_obj_add_style(s_body, OSD_GetStyleTextWhite(), 0);
     lv_obj_set_style_text_font(s_body, &lv_font_unscii_8, 0);
-    lv_obj_set_style_text_line_space(s_body, kLinePitch - 8, 0);
+    /* A label line is the font's line height plus the line space. */
+    lv_obj_set_style_text_line_space(s_body, kLinePitch - (int)lv_font_unscii_8.line_height, 0);
     lv_obj_set_pos(s_body, 0, kBodyY);
     lv_obj_set_size(s_body, kOSD_Width_px, kPageLines * kLinePitch);
     lv_label_set_long_mode(s_body, LV_LABEL_LONG_CLIP);
@@ -135,6 +178,100 @@ static void ensure_overlay(lv_obj_t *screen)
     lv_label_set_long_mode(s_footer, LV_LABEL_LONG_CLIP);
     lv_label_set_text(s_footer, kFooterReply);
     s_footer_shown = kFooterReply;
+
+    /* Keyboard cursor: the selected key again, black on white, on top of
+     * the body text. */
+    s_keycur = lv_label_create(s_panel);
+    lv_obj_set_style_text_font(s_keycur, &lv_font_unscii_8, 0);
+    lv_obj_set_style_text_color(s_keycur, lv_color_hex(kColor_Black), 0);
+    lv_obj_set_style_bg_color(s_keycur, lv_color_hex(kColor_White), 0);
+    lv_obj_set_style_bg_opa(s_keycur, LV_OPA_COVER, 0);
+    lv_label_set_text(s_keycur, "");
+    lv_obj_add_flag(s_keycur, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void set_body(const char *text)
+{
+    if (strcmp(text, s_body_shown) != 0)
+    {
+        lv_label_set_text(s_body, text);
+        snprintf(s_body_shown, sizeof(s_body_shown), "%s", text);
+    }
+}
+
+static void set_header_text(const char *text)
+{
+    if (strcmp(text, s_header_shown) != 0)
+    {
+        lv_label_set_text(s_header, text);
+        snprintf(s_header_shown, sizeof(s_header_shown), "%s", text);
+    }
+}
+
+static void show_panel(bool keys)
+{
+    if (keys != !lv_obj_has_flag(s_keycur, LV_OBJ_FLAG_HIDDEN))
+    {
+        if (keys)
+        {
+            lv_obj_clear_flag(s_keycur, LV_OBJ_FLAG_HIDDEN);
+        }
+        else
+        {
+            lv_obj_add_flag(s_keycur, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(s_panel);
+}
+
+/* Home: title, the four choices, then the radio status. */
+static void render_home(int sel, char *page_text, size_t page_cap)
+{
+    char wifi[24];
+    char ble[16];
+    size_t used;
+
+    grok_wifi_format(wifi, sizeof(wifi));
+    grok_ble_format(ble, sizeof(ble));
+    used = (size_t)snprintf(page_text, page_cap, "\n   CHROMATIC GROK\n\n");
+    for (int i = 0; (i < kHomeCount) && (used < page_cap); i++)
+    {
+        used += (size_t)snprintf(page_text + used, page_cap - used, "%c %s\n", (i == sel) ? '>' : ' ', kHomeItem[i]);
+    }
+    if (used < page_cap)
+    {
+        snprintf(page_text + used, page_cap - used, "\n%.*s\n%.*s", GROK_TEXT_COLS, wifi, GROK_TEXT_COLS, ble);
+    }
+}
+
+/* Keyboard: the end of the typed text, then the keys. */
+static void render_keys(const GrokKeys_t *keys, const char *typed, char *page_text, size_t page_cap)
+{
+    char row[GROK_KEYS_ROW_CHARS + 1];
+    char one[2];
+    const char *label;
+    size_t used;
+    int col = 0;
+    int line;
+
+    grok_keys_tail(typed, page_text, page_cap, GROK_TEXT_COLS, kTypedLines);
+    used = strlen(page_text);
+    for (int r = 0; (r < GROK_KEYS_ROWS) && (used < page_cap); r++)
+    {
+        grok_keys_row(keys, r, row);
+        used += (size_t)snprintf(page_text + used, page_cap - used, "%s%s",
+                                 ((r == 0) || (r == GROK_KEYS_CHAR_ROWS)) ? "\n\n" : "\n", row);
+    }
+    set_body(page_text);
+
+    label = grok_keys_label(keys, one, &col);
+    line = (keys->row < GROK_KEYS_CHAR_ROWS) ? (kKeyLine0 + keys->row) : kWideLine;
+    if (strcmp(lv_label_get_text(s_keycur), label) != 0)
+    {
+        lv_label_set_text(s_keycur, label);
+    }
+    lv_obj_set_pos(s_keycur, col * kGlyphW, kBodyY + (line * kLinePitch));
 }
 
 static void set_footer(const char *text)
@@ -231,6 +368,9 @@ static void render(lv_obj_t *screen)
     bool open;
     bool dirty;
     bool picker;
+    View_t which;
+    GrokKeys_t keys;
+    int home;
     int pick;
     int page;
     size_t nlines;
@@ -244,12 +384,19 @@ static void render(lv_obj_t *screen)
     }
 
     lock();
-    picker = s_ui.picker;
+    which = (View_t)s_ui.view;
+    picker = (which == VIEW_PICK);
+    keys = s_ui.keys;
+    home = s_ui.home;
     pick = s_ui.pick;
     dirty = s_ui.dirty;
-    if (!picker)
+    if (which == VIEW_REPLY)
     {
         snprintf(view, sizeof(view), "%s", s_ui.body);
+    }
+    else if (which == VIEW_KEYS)
+    {
+        snprintf(view, sizeof(view), "%s", (s_ui.typed != NULL) ? s_ui.typed : "");
     }
     page = s_ui.page;
     open = s_ui.open;
@@ -265,6 +412,31 @@ static void render(lv_obj_t *screen)
         return;
     }
 
+    if (which == VIEW_HOME)
+    {
+        set_header_text("HOME");
+        set_footer(kFooterHome);
+        /* Rebuilt every frame: the radio lines change by themselves. */
+        render_home(home, page_text, sizeof(page_text));
+        set_body(page_text);
+        show_panel(false);
+        return;
+    }
+    if (which == VIEW_KEYS)
+    {
+        char header[GROK_TEXT_COLS + 1];
+
+        snprintf(header, sizeof(header), "TYPE %u/%u%s", (unsigned)strlen(view), (unsigned)GROK_PROMPT_MAX,
+                 keys.shift ? " CAP" : "");
+        set_header_text(header);
+        set_footer(kFooterKeys);
+        if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN) || lv_obj_has_flag(s_keycur, LV_OBJ_FLAG_HIDDEN))
+        {
+            render_keys(&keys, view, page_text, sizeof(page_text));
+        }
+        show_panel(true);
+        return;
+    }
     if (picker)
     {
         set_header("ASK ", pick + 1, GROK_PICK_COUNT);
@@ -272,14 +444,9 @@ static void render(lv_obj_t *screen)
         if (dirty || lv_obj_has_flag(s_panel, LV_OBJ_FLAG_HIDDEN))
         {
             render_picker(pick, view, sizeof(view), &lines[0][0], page_text, sizeof(page_text));
-            if (strcmp(page_text, s_body_shown) != 0)
-            {
-                lv_label_set_text(s_body, page_text);
-                snprintf(s_body_shown, sizeof(s_body_shown), "%s", page_text);
-            }
+            set_body(page_text);
         }
-        lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(s_panel);
+        show_panel(false);
         return;
     }
     set_footer(kFooterReply);
@@ -337,14 +504,8 @@ static void render(lv_obj_t *screen)
         used += len;
         page_text[used] = '\0';
     }
-    if (strcmp(page_text, s_body_shown) != 0)
-    {
-        lv_label_set_text(s_body, page_text);
-        snprintf(s_body_shown, sizeof(s_body_shown), "%s", page_text);
-    }
-
-    lv_obj_clear_flag(s_panel, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_move_foreground(s_panel);
+    set_body(page_text);
+    show_panel(false);
 }
 
 static OSD_Result_t widget_draw(void *arg)
@@ -411,7 +572,7 @@ static OSD_Result_t item_button(const Button_t Button, const ButtonState_t State
 
     if ((Button == kButton_A) && (State == kButtonState_Pressed))
     {
-        grok_ui_open_picker();
+        grok_ui_open_home();
     }
     return kOSD_Result_Ok;
 }
@@ -432,25 +593,208 @@ static OSD_Result_t item_transition(void *arg)
     return kOSD_Result_Ok;
 }
 
+/* Keyboard: the typed text lives on the heap from here until it is sent
+ * or dropped. */
+static void open_keys(void)
+{
+    bool ok;
+
+    lock();
+    if (s_ui.typed == NULL)
+    {
+        s_ui.typed = calloc(1, GROK_PROMPT_MAX + 1);
+        s_ui.keys.row = 1;
+        s_ui.keys.col = 0;
+        s_ui.keys.shift = false;
+    }
+    ok = (s_ui.typed != NULL);
+    if (ok)
+    {
+        s_ui.view = VIEW_KEYS;
+        s_ui.open = true;
+        s_ui.dirty = true;
+    }
+    unlock();
+    if (!ok)
+    {
+        grok_ui_set_body("Out of memory for the keyboard.");
+    }
+}
+
+static void drop_typed(void)
+{
+    lock();
+    free(s_ui.typed);
+    s_ui.typed = NULL;
+    unlock();
+}
+
+/* Send what was typed. Nothing happens while the text is empty. */
+static void keys_send(void)
+{
+    char text[GROK_PROMPT_MAX + 1];
+    size_t len;
+
+    lock();
+    snprintf(text, sizeof(text), "%s", (s_ui.typed != NULL) ? s_ui.typed : "");
+    unlock();
+    len = strlen(text);
+    while ((len > 0) && (text[len - 1] == ' '))
+    {
+        text[--len] = '\0';
+    }
+    if (len == 0)
+    {
+        return;
+    }
+    drop_typed();
+    grok_submit_prompt(text); /* shows "..." on the reply view */
+}
+
+static void keys_button(Button_t button)
+{
+    bool empty_back = false;
+    bool send = false;
+
+    lock();
+    if (s_ui.typed == NULL)
+    {
+        unlock();
+        grok_ui_open_home();
+        return;
+    }
+    if (button == kButton_Up)
+    {
+        grok_keys_move(&s_ui.keys, 0, -1);
+    }
+    else if (button == kButton_Down)
+    {
+        grok_keys_move(&s_ui.keys, 0, 1);
+    }
+    else if (button == kButton_Left)
+    {
+        grok_keys_move(&s_ui.keys, -1, 0);
+    }
+    else if (button == kButton_Right)
+    {
+        grok_keys_move(&s_ui.keys, 1, 0);
+    }
+    else if (button == kButton_B)
+    {
+        empty_back = !grok_keys_backspace(s_ui.typed);
+    }
+    else if (button == kButton_Start)
+    {
+        send = true;
+    }
+    else if (button == kButton_A)
+    {
+        char ch = '\0';
+
+        switch (grok_keys_selected(&s_ui.keys, &ch))
+        {
+        case GROK_KEY_CHAR:
+            grok_keys_type(s_ui.typed, GROK_PROMPT_MAX + 1, ch);
+            break;
+        case GROK_KEY_SPACE:
+            grok_keys_type(s_ui.typed, GROK_PROMPT_MAX + 1, ' ');
+            break;
+        case GROK_KEY_DEL:
+            grok_keys_backspace(s_ui.typed);
+            break;
+        case GROK_KEY_SHIFT:
+            s_ui.keys.shift = !s_ui.keys.shift;
+            break;
+        case GROK_KEY_SEND:
+            send = true;
+            break;
+        default:
+            break;
+        }
+    }
+    s_ui.dirty = true;
+    unlock();
+
+    if (send)
+    {
+        keys_send();
+    }
+    else if (empty_back)
+    {
+        /* B with nothing typed leaves the keyboard. */
+        drop_typed();
+        grok_ui_open_home();
+    }
+}
+
+static void home_button(Button_t button)
+{
+    int sel;
+
+    if ((button == kButton_Up) || (button == kButton_Down))
+    {
+        lock();
+        s_ui.home = (uint8_t)(((int)s_ui.home + ((button == kButton_Up) ? (kHomeCount - 1) : 1)) % kHomeCount);
+        s_ui.dirty = true;
+        unlock();
+        return;
+    }
+    if ((button == kButton_B) || (button == kButton_Start))
+    {
+        grok_ui_close(); /* the Chromatic menu is underneath */
+        return;
+    }
+    if (button != kButton_A)
+    {
+        return;
+    }
+    lock();
+    sel = s_ui.home;
+    unlock();
+    switch (sel)
+    {
+    case kHomeType:
+        open_keys();
+        break;
+    case kHomeQuick:
+        grok_ui_open_picker();
+        break;
+    case kHomeLast:
+        grok_ui_open();
+        break;
+    default:
+        grok_ui_close();
+        break;
+    }
+}
+
 static bool on_inputs(void)
 {
+    bool rising;
+    View_t which;
+
     if (!OSD_IsVisible())
     {
+        s_was_visible = false;
         return false;
     }
+    rising = !s_was_visible;
+    s_was_visible = true;
 
     if (!grok_ui_is_open())
     {
+        if (rising && s_auto)
+        {
+            /* The menu button opens the app; B from home shows the menu. */
+            grok_ui_open_home();
+            return true;
+        }
         if (Button_GetState(kButton_Start) == kButtonState_Pressed)
         {
-            grok_ui_open_picker();
+            grok_ui_open_home();
         }
         return false;
     }
-
-    lock();
-    bool picker = s_ui.picker;
-    unlock();
 
     for (int i = 0; i < kNumButtons; i++)
     {
@@ -461,9 +805,23 @@ static bool on_inputs(void)
         {
             continue;
         }
-        if (picker)
+        /* Read per button: a press can change the view. */
+        lock();
+        which = (View_t)s_ui.view;
+        unlock();
+        if (which == VIEW_HOME)
         {
-            /* Up/Down pick, A asks, B (or Start) goes back to the menu. */
+            home_button(button);
+            return true;
+        }
+        if (which == VIEW_KEYS)
+        {
+            keys_button(button);
+            return true;
+        }
+        if (which == VIEW_PICK)
+        {
+            /* Up/Down pick, A asks, B goes home, Start closes the app. */
             if ((button == kButton_Up) || (button == kButton_Down))
             {
                 lock();
@@ -483,7 +841,12 @@ static bool on_inputs(void)
                 grok_submit_prompt(text); /* shows "..." on the reply view */
                 return true;
             }
-            else if ((button == kButton_B) || (button == kButton_Start))
+            else if (button == kButton_B)
+            {
+                grok_ui_open_home();
+                return true;
+            }
+            else if (button == kButton_Start)
             {
                 grok_ui_close();
                 return true;
@@ -504,7 +867,7 @@ static bool on_inputs(void)
         }
         else if (button == kButton_B)
         {
-            grok_ui_open_picker(); /* back to the questions */
+            grok_ui_open_home();
             return true;
         }
         else if (button == kButton_Start)
@@ -543,7 +906,7 @@ void grok_ui_open(void)
         snprintf(s_ui.body, sizeof(s_ui.body), "No reply yet.");
         s_ui.page = 0;
     }
-    s_ui.picker = false;
+    s_ui.view = VIEW_REPLY;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
@@ -552,10 +915,24 @@ void grok_ui_open(void)
 void grok_ui_open_picker(void)
 {
     lock();
-    s_ui.picker = true;
+    s_ui.view = VIEW_PICK;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
+}
+
+void grok_ui_open_home(void)
+{
+    lock();
+    s_ui.view = VIEW_HOME;
+    s_ui.open = true;
+    s_ui.dirty = true;
+    unlock();
+}
+
+void grok_ui_set_auto(bool on)
+{
+    s_auto = on;
 }
 
 void grok_ui_close(void)
@@ -581,7 +958,7 @@ void grok_ui_set_body(const char *text)
     snprintf(s_ui.body, sizeof(s_ui.body), "%s", (text != NULL) ? text : "");
     grok_text_fold_ascii(s_ui.body);
     s_ui.page = 0;
-    s_ui.picker = false;
+    s_ui.view = VIEW_REPLY;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
@@ -591,7 +968,7 @@ void grok_ui_page(int delta)
 {
     lock();
     s_ui.page += delta;
-    s_ui.picker = false;
+    s_ui.view = VIEW_REPLY;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();
@@ -605,7 +982,7 @@ void grok_ui_set_page(int page)
         page = 0;
     }
     s_ui.page = page;
-    s_ui.picker = false;
+    s_ui.view = VIEW_REPLY;
     s_ui.open = true;
     s_ui.dirty = true;
     unlock();

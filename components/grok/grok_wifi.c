@@ -420,6 +420,39 @@ bool grok_store_get_web(void)
     return v == 1;
 }
 
+bool grok_store_set_app(bool on)
+{
+    esp_err_t a;
+    esp_err_t b;
+
+    if (!store_open())
+    {
+        return false;
+    }
+    lock();
+    a = nvs_set_u8(s_nvs, "app", on ? 1 : 0);
+    b = nvs_commit(s_nvs);
+    unlock();
+    return (a == ESP_OK) && (b == ESP_OK);
+}
+
+bool grok_store_get_app(void)
+{
+    uint8_t v = 1;
+
+    if (!store_open())
+    {
+        return true;
+    }
+    lock();
+    if (nvs_get_u8(s_nvs, "app", &v) != ESP_OK)
+    {
+        v = 1;
+    }
+    unlock();
+    return v != 0;
+}
+
 /* Custom preset questions: NVS keys "q1".."q8". Read on demand, not cached. */
 static void question_key(int idx, char key[4])
 {

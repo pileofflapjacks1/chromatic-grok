@@ -465,7 +465,7 @@ static void wifi_usage(void)
 
 static void grok_usage(void)
 {
-    grok_say("grok: status | open | close | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | model [set <name>|clear] | mem | q list|set <n> <text>|clear <n>|ask <n> | web on|off|status | ble unpair | update [force] [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
+    grok_say("grok: status | open | close | app [on|off] | retry | sleep on|off | url [set <url>] | token set <token>|clear | mode [direct|proxy] | key set <key>|clear | model [set <name>|clear] | mem | q list|set <n> <text>|clear <n>|ask <n> | web on|off|status | ble unpair | update [force] [url]|status|rollback|hold | page next|prev|N | ask <prompt> | show <text>\n");
 }
 
 static void cmd_wifi(int argc, char **argv)
@@ -716,6 +716,31 @@ static void cmd_grok(int argc, char **argv)
     {
         grok_mem_print("now");
         grok_web_mem_print();
+        return;
+    }
+    if (strcmp(argv[1], "app") == 0)
+    {
+        /* on: the menu button opens the Grok app first. off: the stock
+         * menu, with the app behind Start and the System tab's GROK row. */
+        if (argc == 2)
+        {
+            grok_say(grok_store_get_app() ? "grok: app on (menu button opens grok)\n" : "grok: app off (menu button opens the menu)\n");
+            return;
+        }
+        if ((argc == 3) && ((strcmp(argv[2], "on") == 0) || (strcmp(argv[2], "off") == 0)))
+        {
+            bool on = (strcmp(argv[2], "on") == 0);
+
+            if (!grok_store_set_app(on))
+            {
+                grok_say("grok: could not save app setting\n");
+                return;
+            }
+            grok_ui_set_auto(on);
+            grok_say(on ? "grok: app on\n" : "grok: app off\n");
+            return;
+        }
+        grok_say("grok: app | app on | app off\n");
         return;
     }
     if (strcmp(argv[1], "web") == 0)
@@ -1053,6 +1078,7 @@ void Grok_Init(lv_obj_t *screen)
     grok_store_init();
     grok_web_init();
     grok_ui_init(screen);
+    grok_ui_set_auto(grok_store_get_app());
     register_commands();
     printf("grok: link ready. `help` lists wifi and grok.\n");
 }
