@@ -4,6 +4,7 @@
  */
 #include "grok.h"
 
+#include "grok_bt.h"
 #include "grok_internal.h"
 #include "grok_ota_util.h"
 
@@ -21,6 +22,7 @@ typedef enum {
     GROK_JOB_ASK = 0,
     GROK_JOB_UPDATE,   /* prompt holds the https URL */
     GROK_JOB_ROLLBACK,
+    GROK_JOB_BT,       /* prompt holds the "bt ..." line (headset spike) */
 } GrokJobKind_t;
 
 typedef struct GrokJob {
@@ -60,7 +62,8 @@ static void radio_task(void *arg);
 
 bool Grok_WantsRadioAwake(void)
 {
-    return s_keep_awake;
+    /* Light sleep would drop the headset link too. */
+    return s_keep_awake || grok_bt_active();
 }
 
 void grok_say(const char *text)
@@ -806,6 +809,30 @@ static void cmd_grok(int argc, char **argv)
     grok_usage();
 }
 
+#if CONFIG_GROK_BT_HEADSET_SPIKE
+static void cmd_bt(int argc, char **argv)
+{
+    char line[GROK_PROMPT_MAX + 1];
+
+    if (argc < 2)
+    {
+        grok_bt_usage();
+        return;
+    }
+    if (grok_bt_is_quick(argc, argv))
+    {
+        grok_bt_exec(argc, argv);
+        return;
+    }
+    if (!join_from(argc, argv, 0, line, sizeof(line)))
+    {
+        grok_say("bt: command too long\n");
+        return;
+    }
+    submit_job(GROK_JOB_BT, line);
+}
+#endif
+
 void grok_exec(int argc, char **argv)
 {
     if ((argc < 1) || (argv == NULL) || (argv[0] == NULL))
@@ -823,6 +850,13 @@ void grok_exec(int argc, char **argv)
         cmd_grok(argc, argv);
         return;
     }
+#if CONFIG_GROK_BT_HEADSET_SPIKE
+    if (strcmp(argv[0], "bt") == 0)
+    {
+        cmd_bt(argc, argv);
+        return;
+    }
+#endif
     grok_say("commands: wifi, grok\n");
 }
 
@@ -854,6 +888,9 @@ static void radio_task(void *arg)
 {
     (void)arg;
 
+#if CONFIG_GROK_BT_HEADSET_SPIKE
+    grok_bt_boot_mark();
+#endif
     grok_wifi_start();
     if (grok_store_get_mode() == GROK_MODE_DIRECT)
     {
@@ -889,6 +926,16 @@ static void radio_task(void *arg)
             grok_update_rollback_now();
             continue;
         }
+#if CONFIG_GROK_BT_HEADSET_SPIKE
+        if (job.kind == GROK_JOB_BT)
+        {
+            char *bt_argv[4];
+            int bt_argc = split_args(job.prompt, bt_argv, 4);
+
+            grok_bt_exec(bt_argc, bt_argv);
+            continue;
+        }
+#endif
 
         if (grok_wifi_has_ssid() && !grok_wifi_is_connected())
         {
@@ -990,6 +1037,21 @@ static void register_commands(void)
     {
         printf("grok: grok command was not registered\n");
     }
+#if CONFIG_GROK_BT_HEADSET_SPIKE
+    {
+        const esp_console_cmd_t bt_cmd = {
+            .command = "bt",
+            .help = "Headset spike (HFP AG): test [mac], on, off, scan, pair [mac], sco, tone, rec, play, tls, proxy, status, mem, unpair",
+            .hint = NULL,
+            .func = &cmd_entry,
+        };
+
+        if (esp_console_cmd_register(&bt_cmd) != ESP_OK)
+        {
+            printf("grok: bt command was not registered\n");
+        }
+    }
+#endif
 }
 
 void Grok_Init(lv_obj_t *screen)

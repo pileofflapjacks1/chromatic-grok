@@ -11,9 +11,13 @@ cc -std=c11 -Wall -Wextra -Werror -I components/grok \
 cc -std=c11 -Wall -Wextra -Werror -I components/grok \
     tests/test_grok_web.c components/grok/grok_web_util.c \
     -o /tmp/test_grok_web
+cc -std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -I components/grok \
+    tests/test_grok_bt.c components/grok/grok_bt_util.c -lm \
+    -o /tmp/test_grok_bt
 /tmp/test_grok_ota
 /tmp/test_grok_web
 /tmp/test_grok_text
+/tmp/test_grok_bt
 python3 tests/test_proxy_extract.py
 python3 tests/test_proxy_auth.py
 python3 -m py_compile companion/proxy.py companion/chromatic_grok.py

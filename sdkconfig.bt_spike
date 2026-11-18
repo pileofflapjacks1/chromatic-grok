@@ -1,0 +1,47 @@
+# Bluetooth headset spike overlay. NOT the release configuration.
+# Use on top of sdkconfig.defaults, in its own build directory:
+#   idf.py -B build-bt -D SDKCONFIG=build-bt/sdkconfig \
+#     -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.bt_spike" build
+# See docs/bt-headset-spike.md. Later lines override sdkconfig.defaults.
+
+# HFP needs Bluetooth Classic and the Bluedroid host. NimBLE (the BLE
+# "ChromaticGrok" peripheral) is BLE-only and cannot run beside Bluedroid,
+# so this build has no BLE peripheral; grok_ble.c compiles to stubs.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=y
+# CONFIG_BT_NIMBLE_ENABLED is not set
+CONFIG_BT_CLASSIC_ENABLED=y
+# Bluedroid's BLE half is not used: smaller code and heap.
+# CONFIG_BT_BLE_ENABLED is not set
+
+# Controller: BR/EDR only, one ACL link, one SCO/eSCO link, SCO over HCI
+# (the PCM pins would collide with the FPGA I2S on 25/26/27/33).
+CONFIG_BTDM_CTRL_MODE_BR_EDR_ONLY=y
+CONFIG_BTDM_CTRL_BR_EDR_MAX_ACL_CONN=1
+CONFIG_BTDM_CTRL_BR_EDR_MAX_SYNC_CONN=1
+CONFIG_BTDM_CTRL_BR_EDR_SCO_DATA_PATH_HCI=y
+
+# Hands-Free Profile, Audio Gateway role only, audio over HCI.
+CONFIG_BT_HFP_ENABLE=y
+CONFIG_BT_HFP_AG_ENABLE=y
+# CONFIG_BT_HFP_CLIENT_ENABLE is not set
+CONFIG_BT_HFP_AUDIO_DATA_PATH_HCI=y
+# Wide-band (mSBC 16 kHz) adds the SBC codec and doubles the audio rate.
+# Start with CVSD 8 kHz; flip this to measure mSBC.
+# CONFIG_BT_HFP_WBS_ENABLE is not set
+# CONFIG_BT_A2DP_ENABLE is not set
+# CONFIG_BT_SPP_ENABLED is not set
+CONFIG_BT_SSP_ENABLED=y
+
+# Bluedroid control blocks on the heap instead of static .bss (DRAM is
+# already near full), freed on "bt off".
+CONFIG_BT_BLE_DYNAMIC_ENV_MEMORY=y
+# No Bluedroid trace strings: flash and a little IRAM.
+CONFIG_BT_STACK_NO_LOG=y
+
+# Wi-Fi + BT coexistence (software arbitration). This is the IDF default
+# with both radios on; set explicitly so it is visible.
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+CONFIG_GROK_BT_HEADSET_SPIKE=y
+CONFIG_GROK_BT_REC_SECONDS=5

@@ -1,0 +1,25 @@
+menu "Chromatic Grok"
+
+config GROK_BT_HEADSET_SPIKE
+    bool "Bluetooth headset spike (HFP Audio Gateway, 'bt' console command)"
+    depends on BT_BLUEDROID_ENABLED && BT_CLASSIC_ENABLED && BT_HFP_AG_ENABLE && BT_HFP_AUDIO_DATA_PATH_HCI
+    default n
+    help
+        Feasibility test only. Adds a 'bt' console command that pairs a
+        Bluetooth headset as a hands-free Audio Gateway, records a few
+        seconds from its mic, plays it back and prints heap numbers with
+        Wi-Fi and TLS running. Needs the Bluedroid host, so the NimBLE
+        'ChromaticGrok' BLE peripheral is not in this build. Apply with
+        SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.bt_spike".
+        See docs/bt-headset-spike.md.
+
+config GROK_BT_REC_SECONDS
+    int "Seconds of headset mic to record"
+    depends on GROK_BT_HEADSET_SPIKE
+    range 1 10
+    default 5
+    help
+        Stored as 4-bit ADPCM: 4 KB of heap per second at 8 kHz (CVSD),
+        8 KB per second at 16 kHz (mSBC).
+
+endmenu

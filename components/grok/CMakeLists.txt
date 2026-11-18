@@ -13,6 +13,8 @@ idf_component_register(
         "grok_update.c"
         "grok_web_util.c"
         "grok_web.c"
+        "grok_bt_util.c"
+        "grok_bt.c"
     INCLUDE_DIRS "."
     REQUIRES
         osd common button tab console nvs_flash freertos
