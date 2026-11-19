@@ -73,7 +73,7 @@ def test_http_401_and_no_key_leak():
     os.environ["XAI_API_KEY"] = FAKE_KEY
     calls = []
 
-    def fake_ask(prompt, max_chars=640, timeout=18):
+    def fake_ask(prompt, max_chars=640, timeout=None):
         calls.append(prompt)
         # Simulate xAI echoing the key in an error.
         return None, proxy.redact("Incorrect API key provided: " + FAKE_KEY)
@@ -97,6 +97,58 @@ def test_http_401_and_no_key_leak():
     finally:
         httpd.shutdown()
         proxy.ask_xai = real
+
+
+class _FakeResp:
+    def __init__(self, payload):
+        self._raw = json.dumps(payload).encode()
+
+    def read(self):
+        return self._raw
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_ask_xai_search_request():
+    os.environ["XAI_API_KEY"] = FAKE_KEY
+    os.environ.pop("XAI_SEARCH", None)
+    os.environ.pop("XAI_TIMEOUT", None)
+    seen = {}
+
+    def fake_urlopen(req, timeout=None):
+        seen["body"] = req.data.decode()
+        seen["auth"] = req.get_header("Authorization")
+        seen["timeout"] = timeout
+        return _FakeResp({"output": [
+            {"type": "custom_tool_call", "call_id": "xs_9", "input": "{\"query\": \"from:CardCaptain\"}"},
+            {"type": "message", "content": [{"type": "output_text",
+                                             "text": "@CardCaptain is a card collector [[1]](https://x.com/c/1).",
+                                             "annotations": [{"type": "url_citation", "url": "https://x.com/c/1"}]}]},
+        ], "citations": ["https://x.com/c/1"]})
+
+    real = proxy.urllib.request.urlopen
+    proxy.urllib.request.urlopen = fake_urlopen
+    try:
+        reply, err = proxy.ask_xai("Who is @CardCaptain on X")
+        assert err is None, err
+        assert reply == "@CardCaptain is a card collector.", reply
+        body = json.loads(seen["body"])
+        assert [t["type"] for t in body["tools"]] == ["x_search", "web_search"]
+        assert FAKE_KEY not in seen["body"]
+        assert seen["auth"] == "Bearer " + FAKE_KEY
+        assert seen["timeout"] == proxy.SEARCH_TIMEOUT
+
+        os.environ["XAI_SEARCH"] = "off"
+        reply, err = proxy.ask_xai("hi")
+        assert "tools" not in json.loads(seen["body"])
+        assert seen["timeout"] == proxy.PLAIN_TIMEOUT
+    finally:
+        proxy.urllib.request.urlopen = real
+        os.environ.pop("XAI_SEARCH", None)
 
 
 if __name__ == "__main__":
