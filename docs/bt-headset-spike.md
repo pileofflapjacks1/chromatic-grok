@@ -8,10 +8,60 @@ This is a test build, not a release. It is off unless you build with the
 `sdkconfig.bt_spike` overlay. The normal build (`sdkconfig.defaults` only) is
 unchanged: same NimBLE `ChromaticGrok` peripheral, no `bt` command.
 
-**Summary before hardware: TLS with Bluetooth Classic up looks like a
-no-go. Plain HTTP to the LAN proxy (the planned voice design) is marginal
-and needs the hardware numbers.** See [Memory budget](#memory-budget) and
-[Go / no-go](#go--no-go).
+**Result on hardware (2026-11-18): no-go.** With Wi-Fi up, Bluetooth
+Classic + Bluedroid + HFP AG left about 2 KB of internal heap (low point
+904 bytes), and the headset scan then crashed. Nothing is left for SCO, the
+audio clip, HTTP or TLS. See [Hardware result](#hardware-result-2026-11-18).
+
+Before hardware the estimate was: TLS with Bluetooth Classic up is a
+no-go, and plain HTTP to the LAN proxy is marginal. See
+[Memory budget](#memory-budget) and [Go / no-go](#go--no-go).
+
+## Hardware result (2026-11-18)
+
+Joe's Chromatic, spike build compiled on his Windows laptop (ESP-IDF
+v5.3.5), flashed over USB at 115200. Direct mode, phone page on (its
+server was running during the test), AirPods-class headset not reached.
+
+| `btmem` stage | int8 free | Change |
+|---|---|---|
+| `boot` (radio task start, before Wi-Fi) | 90,604 B | |
+| `mem boot` (Wi-Fi starting) | 52,936 B | |
+| `start` / `wifi connected` | 40,716 / 40,652 B | |
+| `ble released` | 45,560 B | +4,908 B |
+| `controller on` (BR/EDR) | 33,480 B | −12,080 B |
+| `bt enabled` (Bluedroid + HFP AG) | **2,048 B** (largest block 800 B, min 904 B) | −31,432 B |
+| `bt scan` | **crash** | |
+
+The scan crashed with `Guru Meditation Error: Core 0 panic'ed
+(StoreProhibited)`, `EXCVADDR 0x00000000`, PC `0x4000c46c` (a ROM memory
+routine): a write through a NULL pointer, consistent with an allocation
+failing in the Bluetooth stack at under 1 KB free. The backtrace was not
+decoded (the ELF is on the build laptop:
+`xtensa-esp32-elf-addr2line -pfiaC -e build-bt\chromatic_grok.elf <addresses>`).
+The device rebooted normally; NVS and settings were unaffected.
+
+What it shows:
+
+- Bluetooth Classic costs about **43.5 KB** of heap at runtime (controller
+  12.1 KB, Bluedroid + HFP AG 31.4 KB), inside the estimate below.
+- Releasing BLE memory gives back 4.9 KB, as estimated.
+- The go criterion needs 40 KB *left* with SCO open and a request in
+  flight. The measured headroom is about 2 KB before SCO, the 20 KB clip,
+  10–15 KB of HTTP or ~74 KB of TLS. Turning the phone page off would
+  return a few KB, not 40+.
+
+Conclusion: the ESP32 in this firmware cannot be the headset's Audio
+Gateway. The voice feature should pair the headphones with the phone or
+computer instead: it records, runs speech-to-text, Grok and
+text-to-speech, plays the reply, and sends the text to the Chromatic with
+the existing `grok show` (USB or Wi-Fi). The browser companion (`web/`)
+fits that role. The device's phone typing page cannot use the microphone,
+because browsers only allow it on secure (HTTPS) pages.
+
+To go back to the release firmware, flash `build\` with the same
+three-region command. The spike branch stays as a record; it is not meant
+to be merged.
 
 ## What the spike build changes
 
