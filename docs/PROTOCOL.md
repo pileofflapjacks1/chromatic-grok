@@ -101,6 +101,7 @@ Write a command to RX, including the newline. Subscribe to TX for `GROK_BEGIN` /
 - `GET /health` returns `{"ok": true}` without auth and reveals nothing else.
 - `POST /v1/ask` with the device JSON calls `POST https://api.x.ai/v1/responses`.
 - Model defaults to `grok-4.7`. Override with `XAI_MODEL`.
+- `XAI_SEARCH=on|x|web|off` (default `on`) adds xAI's server-side `x_search` / `web_search` tools, plus `max_turns` (`XAI_SEARCH_MAX_TURNS`, default 2) and `include: ["no_inline_citations"]`. Only the final `message` `output_text` is returned. Reasoning, tool-call items, annotations and citations are dropped, and so are leftover links. Upstream timeout is `XAI_TIMEOUT` (60 s with search, 18 s without). The device waits 65 s for the proxy.
 - The key is `XAI_API_KEY` in the proxy process only. It is never returned or logged; upstream error text is redacted.
 
 The proxy asks for a short plain-ASCII reply and caps it for the screen.

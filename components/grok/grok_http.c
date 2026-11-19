@@ -52,7 +52,9 @@ bool grok_http_ask(const char *url, const char *token, const char *prompt, char 
     int tail;
     HttpResp_t resp;
     esp_http_client_config_t cfg = {
-        .timeout_ms = 20000,
+        /* Longer than the proxy's 60 s XAI_TIMEOUT for live search, so the
+         * proxy's answer (or its timeout error) reaches the screen. */
+        .timeout_ms = 65000,
         .event_handler = on_http,
         .buffer_size = 512,
         .buffer_size_tx = 512,

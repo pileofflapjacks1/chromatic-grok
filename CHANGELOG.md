@@ -1,3 +1,22 @@
+## Unreleased (draft): proxy live search
+
+### Added
+- `companion/proxy.py` enables xAI's server-side `x_search` and `web_search` tools on the Responses API request, so Grok can answer questions about live X accounts, posts and the web. `XAI_SEARCH=on|x|web|off` (default `on`), `XAI_SEARCH_MAX_TURNS` (default 2, sent as `max_turns`), `XAI_TIMEOUT` (default 60 s with search, 18 s without).
+- `companion/.env.example` lists the new variables.
+- Host tests: a sample search response (reasoning, `custom_tool_call`, `web_search_call`, annotations, citations) and a fake-upstream check of the request body.
+
+### Changed
+- With search on, the proxy asks for `include: ["no_inline_citations"]`, uses `max_output_tokens` 400 (180 without) and a system prompt that forbids links and citation marks. The reply parser keeps only `message` / `output_text` items, and the proxy strips any leftover links, URLs and `[n]` marks before the 640-character ASCII cap.
+- `companion/chromatic_grok.py ask --via-host` gets search too (it uses the proxy's `ask_xai`).
+- Firmware, proxy mode: the HTTP timeout to the proxy is 65 s (was 20 s), longer than the proxy's 60 s search timeout, so slow search answers reach the screen (`components/grok/grok_http.c`).
+
+### Cost
+- Search is billed on top of tokens: `web_search` $5 per 1,000 calls; `x_search` $5 per 1,000 posts and $10 per 1,000 profiles fetched ([xAI pricing](https://docs.x.ai/developers/pricing#tools-pricing), checked 2026-11-18). `XAI_SEARCH=off` restores the old request.
+
+### Not changed
+- Direct mode sends no tools; README "Direct mode" lists what it would need. Direct mode's 30 s TLS timeout is unchanged.
+- No new RAM: the timeout is a config field. App version is not bumped yet.
+
 ## 0.16.1-grok (draft, unreleased)
 
 ### Changed

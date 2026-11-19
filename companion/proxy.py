@@ -6,6 +6,11 @@
 The Chromatic posts {"prompt": "...", "max_chars": 640} to /v1/ask.
 This process calls https://api.x.ai/v1/responses and answers {"reply": "..."}.
 
+Search: by default the request enables xAI's server-side x_search and
+web_search tools so Grok can look up live X posts, accounts and the web.
+XAI_SEARCH=off turns them off; XAI_SEARCH=x or XAI_SEARCH=web picks one.
+Search calls are billed by xAI on top of tokens.
+
 Security:
 - Every /v1/ask request must carry "Authorization: Bearer <GROK_PROXY_TOKEN>".
   The token is compared in constant time. Anything else gets 401.
@@ -28,6 +33,26 @@ SYSTEM = (
     "Reply in short plain ASCII. No markdown, no lists, no emoji. "
     "A few sentences at most."
 )
+SEARCH_SYSTEM = SYSTEM + (
+    " You can search X and the web. Use search for anything live or recent, "
+    "such as X accounts, posts, news or prices. "
+    "Put the answer in your own words. No links, no URLs, no citation marks. "
+    "Write X handles as @name."
+)
+SEARCH_MODES = {
+    "on": ("x_search", "web_search"),
+    "x": ("x_search",),
+    "web": ("web_search",),
+    "off": (),
+}
+DEFAULT_SEARCH = "on"
+# Output tokens: the plain call fits 180. With search the model also writes
+# tool-call arguments, so give it more room; fold_ascii still caps the text.
+PLAIN_OUTPUT_TOKENS = 180
+SEARCH_OUTPUT_TOKENS = 400
+PLAIN_TIMEOUT = 18
+SEARCH_TIMEOUT = 60
+DEFAULT_MAX_TURNS = 2
 DEFAULT_MODEL = "grok-4.7"
 XAI_URL = "https://api.x.ai/v1/responses"
 MAX_PROMPT = 2000
@@ -112,8 +137,37 @@ def fold_ascii(text, max_chars):
     return folded
 
 
+_INLINE_CITE = re.compile(r"\[\[\d+\]\]\([^)\s]*\)")
+_MD_LINK = re.compile(r"\[([^\]\n]*)\]\((?:https?://|www\.)[^)\s]*\)")
+_BARE_URL = re.compile(r"\(?(?:https?://|www\.)[^\s)]+\)?")
+_NUM_CITE = re.compile(r"\[\d+(?:,\s*\d+)*\]")
+
+
+def strip_citations(text):
+    """Drop inline citations, markdown links and URLs the screen cannot use."""
+    if not text:
+        return text
+    text = _INLINE_CITE.sub("", text)
+    text = _MD_LINK.sub(lambda m: m.group(1), text)
+    text = _BARE_URL.sub("", text)
+    text = _NUM_CITE.sub("", text)
+    text = re.sub(r"[ \t]+([.,;:!?])", r"\1", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return "\n".join(line.strip() for line in text.split("\n")).strip()
+
+
+# Output items that carry the answer. Everything else (reasoning,
+# web_search_call, custom_tool_call for x_search, ...) is skipped.
+_TEXT_ITEMS = ("message",)
+_TEXT_BLOCKS = ("output_text", "text")
+
+
 def extract_reply(payload):
-    """Pull plain text from a Responses API body, or from an error object."""
+    """Pull the final answer text from a Responses API body, or an error.
+
+    Only "message" output items and their output_text blocks are used, so
+    tool-call items, reasoning and citation lists never reach the screen.
+    """
     if not isinstance(payload, dict):
         return ""
 
@@ -130,6 +184,9 @@ def extract_reply(payload):
                 continue
             if not isinstance(item, dict):
                 continue
+            kind = item.get("type")
+            if kind is not None and kind not in _TEXT_ITEMS:
+                continue
             content = item.get("content")
             if isinstance(content, str):
                 parts.append(content)
@@ -139,7 +196,9 @@ def extract_reply(payload):
                     if isinstance(block, str):
                         parts.append(block)
                     elif isinstance(block, dict) and isinstance(block.get("text"), str):
-                        parts.append(block["text"])
+                        btype = block.get("type")
+                        if btype is None or btype in _TEXT_BLOCKS:
+                            parts.append(block["text"])
     joined = "\n".join(part.strip() for part in parts if isinstance(part, str) and part.strip()).strip()
     if joined:
         return joined
@@ -153,20 +212,60 @@ def extract_reply(payload):
     return ""
 
 
-def ask_xai(prompt, max_chars=DEFAULT_CHARS, timeout=18):
+def search_tools(mode=None):
+    """Tools for XAI_SEARCH (on|off|x|web). Unknown values count as on."""
+    if mode is None:
+        mode = os.environ.get("XAI_SEARCH", DEFAULT_SEARCH)
+    mode = (mode or DEFAULT_SEARCH).strip().lower()
+    if mode in ("0", "false", "no", "none"):
+        mode = "off"
+    if mode in ("1", "true", "yes", "both", "all"):
+        mode = "on"
+    names = SEARCH_MODES.get(mode, SEARCH_MODES[DEFAULT_SEARCH])
+    return [{"type": name} for name in names]
+
+
+def _env_int(name, default, low, high):
+    try:
+        value = int(os.environ.get(name, "").strip())
+    except ValueError:
+        return default
+    return max(low, min(high, value))
+
+
+def build_request(prompt, model=None, mode=None):
+    """Return (body dict, timeout seconds) for one question."""
+    if model is None:
+        model = os.environ.get("XAI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
+    tools = search_tools(mode)
+    body = {
+        "model": model,
+        "input": [
+            {"role": "system", "content": SEARCH_SYSTEM if tools else SYSTEM},
+            {"role": "user", "content": prompt},
+        ],
+        "max_output_tokens": SEARCH_OUTPUT_TOKENS if tools else PLAIN_OUTPUT_TOKENS,
+    }
+    timeout = PLAIN_TIMEOUT
+    if tools:
+        body["tools"] = tools
+        # Caps the agentic search loop (cost and time). Citations stay out of
+        # the text; the top-level citation list is ignored by extract_reply.
+        body["max_turns"] = _env_int("XAI_SEARCH_MAX_TURNS", DEFAULT_MAX_TURNS, 1, 10)
+        body["include"] = ["no_inline_citations"]
+        timeout = SEARCH_TIMEOUT
+    timeout = _env_int("XAI_TIMEOUT", timeout, 5, 300)
+    return body, timeout
+
+
+def ask_xai(prompt, max_chars=DEFAULT_CHARS, timeout=None):
     """Return (reply, error). One of the two is None."""
     key = os.environ.get("XAI_API_KEY", "").strip()
     if not key:
         return None, "XAI_API_KEY is not set"
-    model = os.environ.get("XAI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    body = {
-        "model": model,
-        "input": [
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": prompt},
-        ],
-        "max_output_tokens": 180,
-    }
+    body, default_timeout = build_request(prompt)
+    if timeout is None:
+        timeout = default_timeout
     req = urllib.request.Request(
         XAI_URL,
         data=json.dumps(body).encode("utf-8"),
@@ -191,7 +290,7 @@ def ask_xai(prompt, max_chars=DEFAULT_CHARS, timeout=18):
         return None, redact(message)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return None, "upstream unreachable"
-    reply = fold_ascii(extract_reply(payload), max_chars)
+    reply = fold_ascii(strip_citations(extract_reply(payload)), max_chars)
     if not reply:
         return None, "empty reply"
     return reply, None
@@ -277,7 +376,9 @@ def main(argv):
     if not os.environ.get("XAI_API_KEY", "").strip():
         sys.stderr.write("XAI_API_KEY is not set. The proxy will answer with an error until it is.\n")
     httpd = ThreadingHTTPServer((args.host, args.port), AskHandler)
-    sys.stderr.write("chromatic-grok proxy on http://%s:%s/v1/ask\n" % (args.host, args.port))
+    tools = [t["type"] for t in search_tools()]
+    sys.stderr.write("chromatic-grok proxy on http://%s:%s/v1/ask (search: %s)\n"
+                     % (args.host, args.port, ", ".join(tools) or "off"))
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

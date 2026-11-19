@@ -223,6 +223,22 @@ The screen shows `...`, then the reply. Open the Chromatic menu and press Start,
 
 The proxy calls `POST https://api.x.ai/v1/responses` with model `grok-4.7` (`XAI_MODEL` overrides it) and asks for a short plain-ASCII answer. Override the model only if you know that name is valid for your key.
 
+#### Live X and web search
+
+By default the proxy turns on xAI's server-side search tools, `x_search` and `web_search`, so questions like `grok ask Who is @CardCaptain on X` are answered from live X posts, profiles and the web. Without them Grok answers from its training data and says it can't look up live accounts. xAI runs the searches. The proxy gets back only the answer. It keeps the final `message` text and drops reasoning, tool-call items and the citation list. It asks for no inline citations (`include: ["no_inline_citations"]`), then strips any links, URLs or `[1]` marks that are left, so the reply stays plain ASCII for the 160x144 screen.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `XAI_SEARCH` | `on` | `on` (X and web), `x` (X only), `web` (web only), `off` (no tools, same request as before) |
+| `XAI_SEARCH_MAX_TURNS` | `2` | `max_turns` for xAI's search loop (1-10). Lower means fewer searches, a lower bill and a faster reply |
+| `XAI_TIMEOUT` | `60` with search, `18` without | Seconds the proxy waits for xAI |
+
+With search on, `max_output_tokens` is 400 (180 without), so the model has room for its tool calls. The reply is still capped at 640 characters. The proxy prints `search: x_search, web_search` (or `off`) when it starts.
+
+**Cost.** Search is billed on top of tokens. xAI's [tool pricing](https://docs.x.ai/developers/pricing#tools-pricing) (checked 2026-11-18): `web_search` $5 per 1,000 calls; `x_search` $5 per 1,000 posts fetched and $10 per 1,000 profiles fetched, billed per item, not per call. One X question can fetch dozens of posts, so it can cost a few cents. That is much more than a plain question. Use `XAI_SEARCH=off` or a lower `XAI_SEARCH_MAX_TURNS` to keep costs down. Usage shows in your xAI console. Docs: [X Search](https://docs.x.ai/developers/tools/x-search), [Web Search](https://docs.x.ai/developers/tools/web-search), [citations](https://docs.x.ai/developers/tools/citations).
+
+**Latency.** A search answer takes longer than a plain one. The screen shows `...` until it arrives. The handheld waits up to 65 s for the proxy (`components/grok/grok_http.c`). That is longer than the proxy's 60 s default, so the screen shows either the answer or the proxy's `upstream unreachable` error, not a bare device timeout. If you raise `XAI_TIMEOUT` above about 60 s, the handheld gives up first, but xAI still finishes and bills the call. Firmware older than this change waits only 20 s.
+
 ### Companion
 
 ```bash
@@ -293,7 +309,7 @@ These do not build or flash the firmware:
 sh tests/run_host.sh
 ```
 
-That compiles `grok_text` with the host `cc` and checks the proxy's reply parser with no network.
+That compiles `grok_text` with the host `cc` and checks the proxy's reply parser with no network. That includes a sample search response with tool-call items and citations.
 
 ### Preset questions on the handheld
 
@@ -319,6 +335,13 @@ grok status                    (shows xai_key=set, never the key)
 grok mem
 grok ask "hello"
 ```
+
+Direct mode does **not** use live search. It sends the same plain request as the proxy did before (no `tools`), so it can't look up X accounts. Use proxy mode for that. Adding search to direct mode would need:
+
+- **Reply size.** A search response carries reasoning, tool-call items, `annotations` and a top-level `citations` list. The `message` text often comes after all of them. `grok_https.c` keeps only the first 8 KB (`kRawCap`) and drops the rest, so the answer can be cut off and the screen shows `xai http 200, no text`. Fixing that means parsing the stream as it arrives and keeping only the `message` `output_text`, not growing the buffer.
+- **Heap.** The low point during TLS is about 10 KB of internal heap. A larger receive buffer or a longer request body has to come out of that, so measure with `grok mem` first. Do not add static DRAM.
+- **Timeout.** `timeout_ms` is 30 s. A search answer can take longer, and holding the TLS session open longer keeps the heap at its low point for longer.
+- **Cost.** The key on the device would pay for search with no `XAI_SEARCH` switch. It would need its own NVS setting.
 
 `grok mode proxy` and a reboot bring BLE back. `grok key clear` erases the key. The key is stored **unencrypted** in NVS (`grokcfg/xaikey`); anyone with the device and esptool can read it. Use a low-limit key you can revoke.
 
@@ -385,6 +408,7 @@ The firmware trusts exactly one key: Joe's release key, `keys/joe_signing.pub.pe
 - The font is ASCII. Other bytes become `?`. Replies are capped at 640 characters, 20 columns, and 13 lines per page.
 - Phone typing (`grok web`) is plain HTTP with a 6-digit PIN. Anyone on the LAN can read the PIN and questions in transit. It has not been tested on a Chromatic yet.
 - One request at a time. Proxy mode speaks plain `http://`. Direct mode uses TLS to api.x.ai with BLE off; the xAI key is then on the device, unencrypted.
+- Live X/web search runs in proxy mode only. A search answer can take up to a minute, and each one costs more on the xAI bill.
 - The proxy uses a shared bearer token over plain HTTP. Anyone who can sniff the LAN can see the token; rotate it if the network is shared.
 - BLE pairing was written against the NimBLE v5.3 API and has not been tested with a real central here.
 - BLE lines are about 240 bytes. The serial console splits at 32 arguments unless you quote the prompt.
